@@ -1,0 +1,27 @@
+# Build artifacts
+node_modules/
+.next/
+dist/
+out/
+*.tsbuildinfo
+
+# Go
+services/gateway/gateway
+services/gateway/vendor/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Environment & secrets
+.env
+.dev.env
+*.local.env
+ADMIN_CREDENTIALS.local.md
+error.log
+read.md
+
+# Runtime state
+*.log
+.DS_Store

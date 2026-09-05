@@ -1,0 +1,45 @@
+{
+  "frontier": [
+    {"id": "openai", "name": "OpenAI", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "anthropic", "name": "Anthropic Claude", "protocol": "anthropic", "auth": "x-api-key", "api_prefix": "/v1"},
+    {"id": "google-ai-studio", "name": "Google AI Studio", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1beta/openai"},
+    {"id": "mistral", "name": "Mistral AI", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "deepseek", "name": "DeepSeek", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "xai", "name": "xAI", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "cohere", "name": "Cohere", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "reka", "name": "Reka", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "minimax", "name": "MiniMax", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "z-ai", "name": "Z.ai / GLM", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"}
+  ],
+  "gateways": [
+    {"id": "openrouter", "name": "OpenRouter", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "litellm", "name": "LiteLLM", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "requesty", "name": "Requesty", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "zenmux", "name": "ZenMux", "protocol": "openai", "auth": "bearer", "api_prefix": "/api/v1"},
+    {"id": "jiekou", "name": "Jiekou AI", "protocol": "openai", "auth": "bearer", "api_prefix": "/openai/v1"},
+    {"id": "cloudflare-ai-gateway", "name": "Cloudflare AI Gateway", "protocol": "openai", "auth": "bearer", "api_prefix": "/ai/v1"},
+    {"id": "pollinations", "name": "Pollinations", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "siliconflow", "name": "SiliconFlow", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "azure-ai-foundry", "name": "Azure OpenAI / AI Foundry", "protocol": "openai", "auth": "api-key", "api_prefix": "/v1"},
+    {"id": "bedrock", "name": "Amazon Bedrock via Gateway", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"}
+  ],
+  "fast_inference": [
+    {"id": "groq", "name": "Groq", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "together", "name": "Together AI", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "nvidia-nim", "name": "NVIDIA NIM", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "sambanova", "name": "SambaNova Systems", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "cerebras", "name": "Cerebras", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "huggingface", "name": "Hugging Face Inference", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"}
+  ],
+  "china_asia": [
+    {"id": "alibaba-model-studio", "name": "Alibaba Model Studio / Qwen", "protocol": "openai", "auth": "bearer", "api_prefix": "/compatible-mode/v1"},
+    {"id": "tencent-hunyuan", "name": "Tencent Hunyuan", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "moonshot-kimi", "name": "Moonshot AI / Kimi", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "zhipu-glm", "name": "Zhipu AI / GLM", "protocol": "openai", "auth": "bearer", "api_prefix": "/api/paas/v4"},
+    {"id": "baidu-qianfan", "name": "Baidu Qianfan / ERNIE", "protocol": "openai", "auth": "bearer", "api_prefix": "/v2"},
+    {"id": "volcengine-ark", "name": "ByteDance Volcengine Ark", "protocol": "openai", "auth": "bearer", "api_prefix": "/api/v3"}
+  ],
+  "local": [
+    {"id": "ollama", "name": "Ollama Cloud / Ollama", "protocol": "ollama", "auth": "bearer", "api_prefix": "/api"}
+  ]
+}

@@ -1,0 +1,172 @@
+name: simhaonline
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: simha-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-simha}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-simha_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-simhaonline}
+    command: >
+      postgres -c shared_preload_libraries=timescaledb,pg_stat_statements
+      -c timescaledb.max_background_workers=8
+      -c max_connections=300
+      -c shared_buffers=512MB
+      -c work_mem=32MB
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-simha} -d ${POSTGRES_DB:-simhaonline}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: simha-valkey
+    command: valkey-server --appendonly yes --appendfsync everysec --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - valkeydata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+    container_name: simha-gateway
+    environment:
+      GATEWAY_ADDR: ":8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-simha}:${POSTGRES_PASSWORD:-simha_dev_password}@postgres:5432/${POSTGRES_DB:-simhaonline}?sslmode=disable
+      VALKEY_URL: valkey://valkey:6379/0
+      CONTROL_PLANE_URL: http://control-plane:8081
+      EDGE_BASE_DOMAINS: "simhaonline.ai"
+      MODEL_POLICY_FILE: /config/model_policies.json
+      PROVIDER_CATALOG_FILE: /config/provider_catalog.json
+      COOLDOWN_SECONDS: ${COOLDOWN_SECONDS:-60}
+      USAGE_THRESHOLD: ${USAGE_THRESHOLD:-0.9}
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  control-plane:
+    build:
+      context: ./services/control-plane
+      dockerfile: Dockerfile
+    container_name: simha-control-plane
+    environment:
+      NODE_ENV: production
+      PORT: 8081
+      DATABASE_URL: postgres://${POSTGRES_USER:-simha}:${POSTGRES_PASSWORD:-simha_dev_password}@postgres:5432/${POSTGRES_DB:-simhaonline}
+      VALKEY_URL: valkey://valkey:6379/1
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      SESSION_TTL_HOURS: "24"
+      GATEWAY_URL: http://gateway:8080
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@simhaonline.ai}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@simhaonline.ai}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./services/worker
+      dockerfile: Dockerfile
+    container_name: simha-worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-simha}:${POSTGRES_PASSWORD:-simha_dev_password}@postgres:5432/${POSTGRES_DB:-simhaonline}
+      VALKEY_URL: valkey://valkey:6379/2
+      GATEWAY_URL: http://gateway:8080
+      CONTROL_PLANE_URL: http://control-plane:8081
+      MODEL_REFRESH_INTERVAL: ${MODEL_REFRESH_INTERVAL:-300}
+      STATUS_SNAPSHOT_INTERVAL: ${STATUS_SNAPSHOT_INTERVAL:-60}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@simhaonline.ai}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8001:8001"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: simha-web
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      CONTROL_PLANE_URL: http://control-plane:8081
+      GATEWAY_URL: http://gateway:8080
+      WORKER_URL: http://worker:8001
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://simhaonline.ai}
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3002:3000"
+    restart: unless-stopped
+
+  edge:
+    image: nginx:1.27-alpine
+    container_name: simha-edge
+    volumes:
+      - ./edge/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./edge/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - gateway
+      - control-plane
+      - web
+    ports:
+      - "0.0.0.0:4141:80"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  valkeydata:
