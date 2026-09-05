@@ -40,6 +40,42 @@ as a polyglot production platform:
 - `semantic_memory` vector table (pgvector, 384-dim) for model/doc similarity search.
 - Host separation preserved: `api.` / `platform.` / `chat.` / `status.` / `docs.` vhosts.
 
+## Plans & billing (Stripe only)
+
+| Plan | Price | Requests/day | Requests/month | API keys | Burst |
+|---|---|---|---|---|---|
+| Free | $0 | 200 | 3,000 | 1 | 10/min |
+| Pro | $19/mo | 5,000 | 80,000 | 5 | 60/min |
+| Business | $99/mo | unlimited | unlimited | 20 | 300/min |
+
+- Every new user is auto-enrolled on **Free** on first dashboard visit. Plan changes:
+  Free is instant; paid plans go through **Stripe Checkout** (`/pricing` → hosted payment page).
+- Webhooks drive the lifecycle: `checkout.session.completed` activates,
+  `customer.subscription.updated` syncs period/cancellation,
+  `customer.subscription.deleted` drops the user to Free, `invoice.payment_failed`
+  flags cancel-at-period-end. Endpoint: `POST /billing/webhook` (signature-verified, raw body).
+- Users manage card/cancel/invoices via the Stripe customer portal
+  (dashboard → *Manage billing*).
+- The gateway enforces per-user daily AND monthly quota counters in Valkey
+  (`quota:<uid>:<day>`, `quota:m:<uid>:<month>`, limits cached under
+  `quota:limits:<uid>` with 24h TTL) — over-limit returns `429` with an upgrade hint.
+- Key creation enforces the plan's `max_keys` (admins bypass).
+- Manual fallback: with `STRIPE_SECRET_KEY` empty, paid-plan selection creates a
+  pending invoice; an admin confirms it (`POST /billing/admin/invoices/<id>/confirm`)
+  after a bank transfer.
+
+### Stripe setup
+
+1. `STRIPE_SECRET_KEY=sk_live_…` (or `sk_test_…` first) and
+   `STRIPE_WEBHOOK_SECRET=whsec_…` in `.env`; set `NEXT_PUBLIC_SITE_URL=https://simhaonline.ai`.
+2. `docker compose --env-file .env up -d control-plane`.
+3. Stripe dashboard → Developers → Webhooks → add endpoint
+   `https://simhaonline.ai/billing/webhook` with events `checkout.session.completed`,
+   `customer.subscription.updated`, `customer.subscription.deleted`,
+   `invoice.payment_failed`; paste the signing secret into `STRIPE_WEBHOOK_SECRET`.
+4. Products/prices are auto-provisioned in Stripe on first checkout
+   (`plans.stripe_price_id` caches the price IDs).
+
 ## Layout
 
 ```
@@ -56,9 +92,10 @@ tools/migrate-sqlite/  One-shot SQLite → PostgreSQL data migration
 ## Run
 
 ```bash
-cp .env.example .env          # fill secrets
-cp .env.example .env  # then fill POSTGRES_PASSWORD, JWT_SECRET, OAUTH_ENCRYPTION_KEY, ADMIN_PASSWORD
+cp .env.example .env          # then fill POSTGRES_PASSWORD, JWT_SECRET, OAUTH_ENCRYPTION_KEY, ADMIN_PASSWORD
 docker compose up -d --build
+make smoke                    # end-to-end checks
+```
 
 ## Plesk reverse proxy (no nginx container in the stack)
 
@@ -94,8 +131,8 @@ location / {                      # web app + its BFF (/api/*)
 ```
 
 All app ports are bound to 127.0.0.1 only — Plesk is the only public entry point.
-make smoke                    # end-to-end checks
-```
 
-See `docs/ARCHITECTURE.md` for the service map and `docs/MIGRATION.md` for
-importing the legacy `simha_edge.db`.
+Legacy data import: run `sudo python3 tools/migrate_sqlite.py` (see the script header
+for the connection/env it expects) after the stack is up — it maps the legacy
+`simha_edge.db` tables onto the new schema (users, client keys with valid hashes,
+chats, messages, settings, request history).

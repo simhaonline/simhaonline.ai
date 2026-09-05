@@ -55,6 +55,19 @@ export default function DocsPage() {
               is double-billed: failed dispatches are not recorded as usage.
             </p>
           </div>
+          <div className="card" style={{ marginBottom: 18 }}>
+            <h3>4. Plans &amp; billing (Stripe)</h3>
+            <p>
+              Every account starts on <strong>Free</strong> (200 requests/day, 3,000/month, 1 API
+              key). <strong>Pro</strong> ($19/mo) raises this to 5,000/day and 80,000/month with 5
+              keys; <strong>Business</strong> ($99/mo) is unlimited with 20 keys. Paid plans are
+              billed through Stripe Checkout — pick a plan on the <a href="/pricing">pricing</a>{' '}
+              page, pay by card, and the higher limits apply immediately (the gateway enforces
+              them per request). Manage your card, invoices or cancellation anytime via
+              <em> Manage billing</em> in the dashboard, which opens the Stripe customer portal.
+              Over-limit API calls return <code>429</code> with an upgrade hint.
+            </p>
+          </div>
         </section>
       </main>
     </>

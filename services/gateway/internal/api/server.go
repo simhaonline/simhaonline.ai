@@ -131,8 +131,9 @@ func (s *Server) authorize(r *http.Request) (*authCtx, int, string) {
 	return ac, 0, ""
 }
 
-// checkQuota enforces the user's plan daily limit via Valkey counters
-// (limits JSON cached by the control-plane billing service under quota:limits:<uid>).
+// checkQuota enforces the user's plan daily + monthly limits via Valkey counters
+// (limits JSON cached by the control-plane billing service under quota:limits:<uid>;
+// counters live at quota:<uid>:<day> and quota:m:<uid>:<yyyy-mm>).
 func (s *Server) checkQuota(ctx context.Context, userID int64) (int, string) {
 	raw, err := s.st.Valkey.Do(ctx, s.st.Valkey.B().Get().Key(fmt.Sprintf("quota:limits:%d", userID)).Build()).ToString()
 	if err != nil || raw == "" {
@@ -141,9 +142,23 @@ func (s *Server) checkQuota(ctx context.Context, userID int64) (int, string) {
 	var lim struct {
 		Plan string `json:"plan"`
 		Rpd  int64  `json:"rpd"`
+		Rpm  int64  `json:"rpm"`
+		Rpmo int64  `json:"rmo"` // requests per month, -1 unlimited
 	}
 	if json.Unmarshal([]byte(raw), &lim) != nil {
 		return 0, ""
+	}
+	month := time.Now().UTC().Format("2006-01")
+	if lim.Rpmo > 0 {
+		mkey := fmt.Sprintf("quota:m:%d:%s", userID, month)
+		mn, _ := s.st.Valkey.Do(ctx, s.st.Valkey.B().Incr().Key(mkey).Build()).ToInt64()
+		if mn == 1 {
+			s.st.Valkey.Do(ctx, s.st.Valkey.B().Expire().Key(mkey).Seconds(2678400).Build())
+		}
+		if mn > lim.Rpmo {
+			s.st.Valkey.Do(ctx, s.st.Valkey.B().Decr().Key(mkey).Build())
+			return 429, "Plan monthly request limit reached — upgrade at https://simhaonline.ai/pricing"
+		}
 	}
 	if lim.Rpd < 0 {
 		return 0, "" // unlimited

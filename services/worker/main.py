@@ -157,6 +157,19 @@ async def rollups():
             """)
             await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_daily ON usage_daily(day, account_name, model)")
             await c.execute("REFRESH MATERIALIZED VIEW usage_daily")
+            # billing rollup (per-user) — used by admin dashboards
+            await c.execute("""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS user_usage_daily AS
+                SELECT user_id,
+                       COUNT(*) FILTER (WHERE requested_at > now() - interval '24 hours') AS requests_24h,
+                       COUNT(*) FILTER (WHERE requested_at > now() - interval '30 days') AS requests_30d
+                FROM request_history
+                WHERE user_id IS NOT NULL
+                GROUP BY user_id
+                WITH NO DATA
+            """)
+            await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_usage_daily_uid ON user_usage_daily(user_id)")
+            await c.execute("REFRESH MATERIALIZED VIEW user_usage_daily")
         LOG.info("usage_daily rollup refreshed")
     except Exception as exc:  # noqa: BLE001
         LOG.warning("rollup failed: %s", exc)

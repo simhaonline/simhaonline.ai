@@ -189,12 +189,16 @@ export class BillingService {
       plan: sub.plan_id,
       rpd: Number(sub.requests_per_day),
       rpm: Number(sub.rate_limit_per_min),
+      rmo: Number(sub.requests_per_month),
       max_keys: Number(sub.max_keys),
     };
     const day = new Date().toISOString().slice(0, 10);
+    const month = day.slice(0, 7);
     const dkey = `quota:${userId}:${day}`;
+    const mkey = `quota:m:${userId}:${month}`;
     await this.redis.set(dkey, '0', 'EX', 172800);
-    await this.redis.set(`quota:limits:${userId}`, JSON.stringify(quota));
+    await this.redis.set(mkey, '0', 'EX', 2678400);
+    await this.redis.set(`quota:limits:${userId}`, JSON.stringify(quota), 'EX', 86400);
   }
 
   /** Increment daily usage; returns remaining requests (null = unlimited). Throws over-quota. */
