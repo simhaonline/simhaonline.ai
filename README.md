@@ -11,7 +11,7 @@ as a polyglot production platform:
 | Frontend (site, chat, dashboard, docs, status) | **Next.js** | `services/web` | 3000 |
 | Database | **PostgreSQL 16 + pgvector + TimescaleDB** | `database/` | 5433 (host) |
 | Cache / shared state / cooldowns / rate windows | **Valkey** | — | 6380 (host) |
-| Edge router (hostname separation) | nginx | `edge/` | **4141** (same contract as legacy Plesk upstream) |
+| Edge router (hostname separation) | nginx | `edge/` | **4142** (4141 held by legacy systemd service) |
 
 ## What the platform does (feature parity with the legacy router)
 
@@ -57,7 +57,7 @@ tools/migrate-sqlite/  One-shot SQLite → PostgreSQL data migration
 
 ```bash
 cp .env.example .env          # fill secrets
-docker compose up -d --build  # edge listens on :4141 (legacy Plesk contract)
+docker compose up -d --build  # edge listens on :4142 — set back to 4141 after legacy ollama-proxy service is stopped
 make smoke                    # end-to-end checks
 ```
 
