@@ -64,7 +64,7 @@ services:
       valkey:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${PROXY_BIND_IP:-152.53.67.111}:8080:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 10s
@@ -107,7 +107,7 @@ services:
       valkey:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8081:8081"
+      - "${PROXY_BIND_IP:-152.53.67.111}:8081:8081"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -139,7 +139,7 @@ services:
       gateway:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8001:8001"
+      - "${PROXY_BIND_IP:-152.53.67.111}:8001:8001"
     restart: unless-stopped
 
   web:
@@ -158,16 +158,16 @@ services:
       control-plane:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3002:3000"
+      - "${PROXY_BIND_IP:-152.53.67.111}:3002:3000"
     restart: unless-stopped
 
 # NOTE: no edge/nginx service — Plesk's nginx is the front door.
 # Plesk proxy rules (Additional nginx directives on the simhaonline.ai subscription):
-#   location ~ ^/(v1|healthz|gateway-status|internal/refresh-models) { proxy_pass http://127.0.0.1:8080; ... }
-#   location ~ ^/(auth|admin)/                                      { proxy_pass http://127.0.0.1:8081; ... }
-#   location ~ ^/chat/api/                                          { proxy_pass http://127.0.0.1:8081; ... }
-#   location ~ ^/api/                                               { proxy_pass http://127.0.0.1:3002; ... }
-#   location /                                                      { proxy_pass http://127.0.0.1:3002; ... }
+#   Remote Plesk proxies to THIS server's real IP (see tools/plesk-vhost-directives.conf):
+#   location / { proxy_pass http://152.53.67.111:3002; ... }   # web vhosts (apex/platform/docs)
+#   location ~ ^/(auth|admin|billing)(/|$) { proxy_pass http://152.53.67.111:8081; ... }   # chat vhost
+#   location ~ ^/(status-data|status-subscribe)$ { proxy_pass http://152.53.67.111:8001; ... }  # status vhost
+#   location / { proxy_pass http://152.53.67.111:8080; ... }   # api vhost
 volumes:
   pgdata:
   valkeydata:

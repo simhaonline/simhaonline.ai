@@ -112,7 +112,7 @@ All hosts (paste into every vhost — health probe + websockets + SSE baselines)
 
 ```nginx
 location = /healthz {
-    proxy_pass http://127.0.0.1:8080;
+    proxy_pass http://152.53.67.111:8080;
     proxy_set_header Host $host;
     access_log off;
 }
@@ -122,7 +122,7 @@ location = /healthz {
 
 ```nginx
 location / {                      # web app; its BFF serves /api/* — EVERYTHING
-    proxy_pass http://127.0.0.1:3002;
+    proxy_pass http://152.53.67.111:3002;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_http_version 1.1;
@@ -138,7 +138,7 @@ location / {                      # web app; its BFF serves /api/* — EVERYTHIN
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:3002;
+    proxy_pass http://152.53.67.111:3002;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_http_version 1.1;
@@ -154,7 +154,7 @@ location / {
 
 ```nginx
 location ~ ^/(auth|admin|billing)(/|$) {   # control-plane APIs
-    proxy_pass http://127.0.0.1:8081;
+    proxy_pass http://152.53.67.111:8081;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
@@ -162,7 +162,7 @@ location ~ ^/(auth|admin|billing)(/|$) {   # control-plane APIs
     client_max_body_size 16m;
 }
 location / {                               # chat UI + its BFF (/api/*)
-    proxy_pass http://127.0.0.1:3002;
+    proxy_pass http://152.53.67.111:3002;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_http_version 1.1;
@@ -180,13 +180,13 @@ location / {                               # chat UI + its BFF (/api/*)
 
 ```nginx
 location ~ ^/(status-data|status-subscribe)$ {   # worker
-    proxy_pass http://127.0.0.1:8001;
+    proxy_pass http://152.53.67.111:8001;
     proxy_set_header Host $host;
     proxy_buffering off;
     proxy_read_timeout 60s;
 }
 location / {                                     # status page (web)
-    proxy_pass http://127.0.0.1:3002;
+    proxy_pass http://152.53.67.111:3002;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
@@ -198,7 +198,7 @@ location / {                                     # status page (web)
 
 ```nginx
 location / {                      # gateway serves /v1/*, /healthz,
-    proxy_pass http://127.0.0.1:8080;   # /gateway-status, /internal/*
+    proxy_pass http://152.53.67.111:8080;   # /gateway-status, /internal/*
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;          # required for SSE streaming
@@ -209,7 +209,7 @@ location / {                      # gateway serves /v1/*, /healthz,
 
 After saving, apply with `sudo plesk nginx reload` (or the Plesk UI restart).
 
-All app ports are bound to 127.0.0.1 only — Plesk is the only public entry point.
+App ports bind to the server IP 152.53.67.111 (override with PROXY_BIND_IP) so the REMOTE Plesk server can proxy to them; postgres/valkey stay loopback-only. Plesk is the only public entry point.
 
 Legacy data import: run `sudo python3 tools/migrate_sqlite.py` (see the script header
 for the connection/env it expects) after the stack is up — it maps the legacy
