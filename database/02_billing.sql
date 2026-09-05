@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS plans (
     id TEXT PRIMARY KEY,                       -- free | pro | business
     name TEXT NOT NULL,
     price_monthly_usd NUMERIC(10,2) NOT NULL DEFAULT 0,
+    stripe_price_id TEXT,                      -- Stripe Price for monthly billing (synced via admin endpoint)
     -- limits
     requests_per_day BIGINT NOT NULL DEFAULT -1,   -- -1 = unlimited
     requests_per_month BIGINT NOT NULL DEFAULT -1,
@@ -44,7 +45,9 @@ ALTER TABLE subscriptions
     ADD COLUMN IF NOT EXISTS plan_id TEXT REFERENCES plans(id),
     ADD COLUMN IF NOT EXISTS current_period_start DATE,
     ADD COLUMN IF NOT EXISTS current_period_end DATE,
-    ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT,
+    ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 
 -- ============ seed default plans ============
 

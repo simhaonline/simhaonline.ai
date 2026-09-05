@@ -1,8 +1,9 @@
 // User-facing billing endpoints (BFF-forwarded via /api/billing/*).
-import { Controller, Get, Post, Body, Req, Res, Param, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Req, Res, Param, Headers, HttpException, HttpStatus } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Inject } from '@nestjs/common';
 import { BillingService } from './billing.service';
+import { StripeService } from './stripe.service';
 import { PG_POOL } from '../db/db.module';
 import { Pool } from 'pg';
 
@@ -12,6 +13,7 @@ const COOKIE = 'simha_session';
 export class BillingController {
   constructor(
     private readonly billing: BillingService,
+    private readonly stripe: StripeService,
     @Inject(PG_POOL) private readonly pool: Pool,
   ) {}
 
@@ -49,11 +51,42 @@ export class BillingController {
     const user = await this.user(req);
     if (!user) return res.status(HttpStatus.UNAUTHORIZED).json({ error: 'Login required' });
     try {
-      const out = await this.billing.requestPlan(user.id, String(body.plan_id || ''));
+      const out = await this.billing.requestPlan(user.id, String(body.plan_id || ''), this.stripe);
       return res.status(HttpStatus.CREATED).json(out);
     } catch (e) {
       return res.status(HttpStatus.BAD_REQUEST).json({ error: (e as Error).message });
     }
+  }
+
+  /** Stripe customer portal (manage card / cancel). */
+  @Post('portal')
+  async portal(@Req() req: Request, @Res() res: Response) {
+    const user = await this.user(req);
+    if (!user) return res.status(HttpStatus.UNAUTHORIZED).json({ error: 'Login required' });
+    try {
+      const url = await this.stripe.createPortal(user.id);
+      return res.json({ portal_url: url });
+    } catch (e) {
+      return res.status(HttpStatus.BAD_REQUEST).json({ error: (e as Error).message });
+    }
+  }
+
+  /**
+   * Stripe webhook — MUST receive the raw body. Mounted in main.ts with
+   * raw-body parsing before the JSON middleware (see bootstrap()).
+   */
+  @Post('webhook')
+  async webhook(
+    @Req() req: Request & { rawBody?: Buffer },
+    @Res() res: Response,
+    @Headers('stripe-signature') signature: string,
+  ) {
+    const ok = await this.stripe.handleWebhook(
+      (req.rawBody as Buffer) || Buffer.from(''),
+      signature,
+    );
+    if (!ok) return res.status(HttpStatus.BAD_REQUEST).json({ error: 'invalid signature or stripe disabled' });
+    return res.json({ received: true });
   }
 
   @Post('cancel')

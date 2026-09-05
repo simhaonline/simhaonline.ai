@@ -43,6 +43,10 @@ export default function Pricing() {
       return;
     }
     if (r.ok) {
+      if (d.status === 'checkout' && d.checkout_url) {
+        window.location.href = d.checkout_url; // Stripe hosted Checkout
+        return;
+      }
       setMsg(
         d.status === 'active'
           ? `Activated the ${planId} plan.`

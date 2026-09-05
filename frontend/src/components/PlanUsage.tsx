@@ -92,6 +92,19 @@ export default function PlanUsage() {
             Cancel at period end
           </button>
         )}
+        {usage && usage.plan !== 'free' && (
+          <button
+            className="btn"
+            onClick={async () => {
+              const r = await fetch('/api/billing/portal', { method: 'POST' });
+              const d = await r.json().catch(() => ({}));
+              if (d.portal_url) window.location.href = d.portal_url;
+              else setMsg(d.error || 'Portal unavailable');
+            }}
+          >
+            Manage billing (Stripe)
+          </button>
+        )}
         {msg && <span style={{ color: 'var(--accent)', fontSize: 13 }}>{msg}</span>}
       </div>
     </div>

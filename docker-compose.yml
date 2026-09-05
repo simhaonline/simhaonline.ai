@@ -95,6 +95,10 @@ services:
       SMTP_FROM: ${SMTP_FROM:-no-reply@simhaonline.ai}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@simhaonline.ai}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_SUCCESS_URL: ${NEXT_PUBLIC_SITE_URL:-https://simhaonline.ai}/dashboard?billing=success
+      STRIPE_CANCEL_URL: ${NEXT_PUBLIC_SITE_URL:-https://simhaonline.ai}/pricing?billing=cancelled
     volumes:
       - ./config:/config:ro
     depends_on:

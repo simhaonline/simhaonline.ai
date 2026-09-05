@@ -1,18 +1,26 @@
 // Simha Online control plane — NestJS bootstrap.
 // Owns: sessions, signup/login, client keys, admin APIs, chat workbench APIs,
-// OAuth broker, SMTP. The Go gateway consults it for OAuth upstream tokens.
+// OAuth broker, SMTP, billing/Stripe. The Go gateway consults it for OAuth
+// upstream tokens and reads plan quotas from Valkey.
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthService } from './auth/auth.service';
 import { json, urlencoded } from 'express';
+import type { Request as ExRequest } from 'express';
 import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'] });
+  const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'], rawBody: true });
   const port = parseInt(process.env.PORT || '8081', 10);
   app.use(cookieParser());
-  app.use(json({ limit: '16mb' }));
+  app.use(json({
+    limit: '16mb',
+    verify: (req: ExRequest & { rawBody?: Buffer }, _res, buf) => {
+      // preserve raw body for Stripe webhook signature verification
+      (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+    },
+  }));
   app.use(urlencoded({ extended: true }));
   app.enableShutdownHooks();
   await app.listen(port, '0.0.0.0');

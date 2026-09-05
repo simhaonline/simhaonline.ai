@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
 import { PG_POOL, REDIS } from '../db/db.module';
+import type { StripeService } from './stripe.service';
 
 export interface PlanRow {
   id: string;
@@ -78,15 +79,21 @@ export class BillingService {
     return r2[0] || null;
   }
 
-  /** User requests a plan change: free → instant; paid → pending invoice for admin confirm. */
-  async requestPlan(userId: number, planId: string) {
+  /** User requests a plan change: free → instant; paid → Stripe Checkout (or manual invoice fallback). */
+  async requestPlan(userId: number, planId: string, stripe: StripeService | null) {
     const plan = await this.getPlan(planId);
     if (!plan) throw new Error('Unknown plan');
     if (plan.price_monthly_usd === '0.00') {
       await this.activate(userId, planId);
       return { status: 'active', plan_id: planId };
     }
-    // downgrades to a cheaper paid plan also wait for confirmation (simplest consistent rule)
+    if (stripe?.enabled) {
+      const { rows } = await this.pool.query(`SELECT email FROM users WHERE id = $1`, [userId]);
+      if (!rows.length) throw new Error('User not found');
+      const out = await stripe.createCheckout(userId, rows[0].email, planId);
+      return { status: 'checkout', checkout_url: out.checkout_url };
+    }
+    // Stripe unconfigured: fall back to manual pending invoice (admin confirms)
     const periodStart = new Date().toISOString().slice(0, 10);
     const periodEnd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
     await this.pool.query(
@@ -142,6 +149,12 @@ export class BillingService {
       );
       return { status: 'cancels_at_period_end' };
     }
+    await this.activate(userId, 'free');
+    return { status: 'active', plan_id: 'free' };
+  }
+
+  /** Public alias used by Stripe webhooks to drop a user back to free. */
+  async activateFree(userId: number) {
     await this.activate(userId, 'free');
     return { status: 'active', plan_id: 'free' };
   }
