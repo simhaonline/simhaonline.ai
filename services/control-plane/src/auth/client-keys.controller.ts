@@ -46,6 +46,26 @@ export class ClientKeysController {
   ) {
     const user = await this.user(req);
     if (!user) return unauthorized(res);
+    // plan key limit (admins bypass)
+    if (user.role !== 'admin') {
+      const { rows: cap } = await this.pool.query(
+        `SELECT p.max_keys FROM subscriptions s JOIN plans p ON p.id = s.plan_id
+         WHERE s.user_id = $1 AND s.status = 'active' ORDER BY s.id LIMIT 1`,
+        [user.id],
+      );
+      const maxKeys = cap.length ? Number(cap[0].max_keys) : 1;
+      const { rows: cnt } = await this.pool.query(
+        `SELECT count(*)::int AS n FROM client_api_keys
+         WHERE owner_user_id = $1 AND active = TRUE`,
+        [user.id],
+      );
+      if ((cnt[0]?.n ?? 0) >= maxKeys) {
+        throw new HttpException(
+          { error: `Plan limit of ${maxKeys} active key(s) reached — upgrade your plan` },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+    }
     const name = (body.name || '').trim();
     if (!name || name.length > 80) {
       throw new HttpException(

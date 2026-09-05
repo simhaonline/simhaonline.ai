@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import TopBar from '@/components/TopBar';
+import PlanUsage from '@/components/PlanUsage';
 
 interface AccountRow {
   name: string;
@@ -207,6 +208,10 @@ export default function DashboardPage() {
             </div>
           </section>
         )}
+
+        <section style={{ paddingBottom: 8 }}>
+          <PlanUsage />
+        </section>
 
         <section style={{ paddingBottom: 60 }}>
           <div className="card" style={{ marginBottom: 18 }}>

@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -122,8 +123,43 @@ func (s *Server) authorize(r *http.Request) (*authCtx, int, string) {
 	ac := &authCtx{ClientKeyID: &id}
 	if owner > 0 {
 		ac.UserID = &owner
+		// plan quota check (daily request ceiling; unlimited when negative)
+		if code2, msg2 := s.checkQuota(ctx, owner); code2 != 0 {
+			return nil, code2, msg2
+		}
 	}
 	return ac, 0, ""
+}
+
+// checkQuota enforces the user's plan daily limit via Valkey counters
+// (limits JSON cached by the control-plane billing service under quota:limits:<uid>).
+func (s *Server) checkQuota(ctx context.Context, userID int64) (int, string) {
+	raw, err := s.st.Valkey.Do(ctx, s.st.Valkey.B().Get().Key(fmt.Sprintf("quota:limits:%d", userID)).Build()).ToString()
+	if err != nil || raw == "" {
+		return 0, "" // no plan info → allow (unconfigured/dev)
+	}
+	var lim struct {
+		Plan string `json:"plan"`
+		Rpd  int64  `json:"rpd"`
+	}
+	if json.Unmarshal([]byte(raw), &lim) != nil {
+		return 0, ""
+	}
+	if lim.Rpd < 0 {
+		return 0, "" // unlimited
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	dkey := fmt.Sprintf("quota:%d:%s", userID, day)
+	n, _ := s.st.Valkey.Do(ctx, s.st.Valkey.B().Incr().Key(dkey).Build()).ToInt64()
+	if n == 1 {
+		s.st.Valkey.Do(ctx, s.st.Valkey.B().Expire().Key(dkey).Seconds(172800).Build())
+	}
+	if n > lim.Rpd {
+		// keep counter from drifting upward unboundedly on rejected calls
+		s.st.Valkey.Do(ctx, s.st.Valkey.B().Decr().Key(dkey).Build())
+		return 429, "Plan daily request limit reached — upgrade at https://simhaonline.ai/pricing"
+	}
+	return 0, ""
 }
 
 func (s *Server) unauthorized(w http.ResponseWriter) {
@@ -243,8 +279,13 @@ func optimize(data map[string]any, policy store.Policy) (map[string]any, []strin
 // ---- main proxy ----
 
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
-	ac, code, _ := s.authorize(r)
+	ac, code, msg := s.authorize(r)
 	if code != 0 {
+		if code == 429 {
+			w.Header().Set("Retry-After", "60")
+			writeJSON(w, 429, map[string]any{"error": msg})
+			return
+		}
 		s.unauthorized(w)
 		return
 	}
