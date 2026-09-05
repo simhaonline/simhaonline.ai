@@ -4,10 +4,12 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { json, urlencoded } from 'express';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'] });
   const port = parseInt(process.env.PORT || '8081', 10);
+  app.use(cookieParser());
   app.use(json({ limit: '16mb' }));
   app.use(urlencoded({ extended: true }));
   app.enableShutdownHooks();

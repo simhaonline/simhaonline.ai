@@ -20,7 +20,9 @@ export const REDIS = 'REDIS';
     {
       provide: REDIS,
       useFactory: () => {
-        const url = process.env.VALKEY_URL || 'redis://valkey:6379/1';
+        // ioredis only understands redis:// and rediss:// — normalize valkey://
+        const raw = process.env.VALKEY_URL || 'redis://valkey:6379/1';
+        const url = raw.replace(/^valkey:\/\//, 'redis://');
         return new Redis(url, { maxRetriesPerRequest: 3 });
       },
     },

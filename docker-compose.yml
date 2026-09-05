@@ -164,7 +164,7 @@ services:
       - control-plane
       - web
     ports:
-      - "0.0.0.0:4141:80"
+      - "0.0.0.0:4142:80"
     restart: unless-stopped
 
 volumes:

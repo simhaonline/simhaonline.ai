@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import psycopg
+from psycopg_pool import AsyncConnectionPool
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 
@@ -25,13 +26,13 @@ CONTROL_URL = os.environ.get("CONTROL_PLANE_URL", "http://control-plane:8081")
 DISCOVERY_INTERVAL = int(os.environ.get("MODEL_REFRESH_INTERVAL", "300"))
 STATUS_INTERVAL = int(os.environ.get("STATUS_SNAPSHOT_INTERVAL", "60"))
 
-pool: psycopg.AsyncConnectionPool | None = None
+pool: AsyncConnectionPool | None = None
 
 
-async def db() -> psycopg.AsyncConnectionPool:
+async def db() -> AsyncConnectionPool:
     global pool
     if pool is None:
-        pool = psycopg.AsyncConnectionPool(DB_URL, min_size=1, max_size=8, open=True)
+        pool = AsyncConnectionPool(DB_URL, min_size=1, max_size=8, open=True)
     return pool
 
 
@@ -254,7 +255,7 @@ async def semantic_seed():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global pool
-    pool = psycopg.AsyncConnectionPool(DB_URL, min_size=1, max_size=8, open=True)
+    pool = AsyncConnectionPool(DB_URL, min_size=1, max_size=8, open=True)
     tasks = [
         asyncio.create_task(discovery_loop(), name="discovery"),
         asyncio.create_task(status_loop(), name="status"),
