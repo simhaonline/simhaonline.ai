@@ -99,26 +99,29 @@ make smoke                    # end-to-end checks
 
 ## Plesk reverse proxy (no nginx container in the stack)
 
-Create the simhaonline.ai subscription in Plesk with a Let's Encrypt cert, then add
-**Additional nginx directives** (Apache/Nginx Settings → nginx directives):
+Create the `simhaonline.ai` subscription in Plesk with a Let's Encrypt cert, add the
+extra vhosts (`chat.` / `platform.` / `status.` / `docs.` / `api.`) as **additional
+domains** on the same subscription, then paste the matching block below into
+**Apache & nginx Settings → Additional nginx directives** for each host.
+
+Important: keep each block *complete* — a `location / { … }` catch-all must exist in
+every web-facing vhost, otherwise nginx answers 404 for any path you did not list
+(Plesk merges these directives into the vhost verbatim).
+
+All hosts (paste into every vhost — health probe + websockets + SSE baselines):
 
 ```nginx
-location ~ ^/(v1/|healthz|gateway-status|internal/refresh-models) {
+location = /healthz {
     proxy_pass http://127.0.0.1:8080;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_buffering off;          # required for SSE streaming
-    proxy_read_timeout 300s;
+    access_log off;
 }
-location ~ ^/(auth/|admin/|chat/api/|internal/) {
-    proxy_pass http://127.0.0.1:8081;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_buffering off;
-    proxy_read_timeout 120s;
-    client_max_body_size 16m;
-}
-location / {                      # web app + its BFF (/api/*)
+```
+
+### simhaonline.ai (marketing site + docs/status/pricing pages + BFF)
+
+```nginx
+location / {                      # web app; its BFF serves /api/* — EVERYTHING
     proxy_pass http://127.0.0.1:3002;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -127,8 +130,84 @@ location / {                      # web app + its BFF (/api/*)
     proxy_set_header Connection "upgrade";
     proxy_buffering off;
     proxy_read_timeout 300s;
+    client_max_body_size 16m;
 }
 ```
+
+### platform.simhaonline.ai (main app/dashboard) — same block as apex
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3002;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+    client_max_body_size 16m;
+}
+```
+
+### chat.simhaonline.ai (chat workbench: web UI + control-plane APIs)
+
+```nginx
+location ~ ^/(auth|admin|billing)(/|$) {   # control-plane APIs
+    proxy_pass http://127.0.0.1:8081;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_read_timeout 120s;
+    client_max_body_size 16m;
+}
+location / {                               # chat UI + its BFF (/api/*)
+    proxy_pass http://127.0.0.1:3002;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+    client_max_body_size 16m;
+}
+```
+
+### docs.simhaonline.ai — same `location /` block as apex (docs is a web page)
+
+### status.simhaonline.ai (status page + its data APIs)
+
+```nginx
+location ~ ^/(status-data|status-subscribe)$ {   # worker
+    proxy_pass http://127.0.0.1:8001;
+    proxy_set_header Host $host;
+    proxy_buffering off;
+    proxy_read_timeout 60s;
+}
+location / {                                     # status page (web)
+    proxy_pass http://127.0.0.1:3002;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_read_timeout 60s;
+}
+```
+
+### api.simhaonline.ai (public LLM API — no web UI)
+
+```nginx
+location / {                      # gateway serves /v1/*, /healthz,
+    proxy_pass http://127.0.0.1:8080;   # /gateway-status, /internal/*
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;          # required for SSE streaming
+    proxy_read_timeout 300s;
+    client_max_body_size 16m;
+}
+```
+
+After saving, apply with `sudo plesk nginx reload` (or the Plesk UI restart).
 
 All app ports are bound to 127.0.0.1 only — Plesk is the only public entry point.
 

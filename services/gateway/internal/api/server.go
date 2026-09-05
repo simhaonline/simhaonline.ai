@@ -49,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/status", s.handleStatus)
+	mux.HandleFunc("/gateway-status", s.handleGatewayStatus)
 	mux.HandleFunc("/internal/refresh-models", s.handleRefreshModels)
 	mux.HandleFunc("/v1/models", s.handleModels)
 	mux.HandleFunc("/v1/", s.handleProxy)
@@ -222,6 +223,28 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"status":             "ok",
+		"accounts":           len(accounts),
+		"available_accounts": available,
+		"models":             models,
+	})
+}
+
+// handleGatewayStatus is the PUBLIC (unauthenticated) usage snapshot served at
+// /gateway-status — safe to expose via Plesk for the status page and uptime monitors.
+// It reports counts only, never keys or provider credentials.
+func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	models := len(s.st.KnownModels(ctx))
+	accounts := s.st.SnapshotAccountStatus(ctx)
+	available := 0
+	for _, a := range accounts {
+		if !a.CoolingDown && a.HasCapacity {
+			available++
+		}
+	}
+	writeJSON(w, 200, map[string]any{
+		"status":             "ok",
+		"service":            "simha-edge-router",
 		"accounts":           len(accounts),
 		"available_accounts": available,
 		"models":             models,
