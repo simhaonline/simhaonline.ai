@@ -24,4 +24,6 @@ read.md
 
 # Runtime state
 *.log
-.DS_Store
+.DS_Store.live/
+.live/
+backups/

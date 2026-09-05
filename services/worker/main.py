@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import httpx
 import psycopg
@@ -250,6 +251,46 @@ async def semantic_seed():
         LOG.warning("semantic seed failed: %s", exc)
 
 
+# ---------------- nightly database backup (pg_dump) ----------------
+
+async def backup_run():
+    """Run one pg_dump cycle (gzip-compressed) and prune old backups."""
+    backup_dir = os.environ.get("BACKUP_DIR", "/backups")
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(backup_dir, f"simhaonline_{stamp}.sql.gz")
+        proc = await asyncio.create_subprocess_shell(
+            f'pg_dump --no-owner --no-privileges --dbname "$SIMHA_DB" | gzip > "{path}"',
+            env={**os.environ, "SIMHA_DB": DB_URL},
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            LOG.warning("pg_dump failed: %s", err.decode()[-300:])
+            return
+        size = os.path.getsize(path)
+        LOG.info("backup written: %s (%d bytes)", path, size)
+        # prune: keep 7 newest
+        backups = sorted(
+            f for f in os.listdir(backup_dir) if f.startswith("simhaonline_") and f.endswith(".sql.gz")
+        )
+        for old in backups[:-7]:
+            os.remove(os.path.join(backup_dir, old))
+            LOG.info("pruned old backup: %s", old)
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("backup failed: %s", exc)
+
+
+async def backup_loop():
+    interval = int(os.environ.get("BACKUP_INTERVAL", "86400"))
+    await asyncio.sleep(120)  # let the DB settle after boot
+    while True:
+        await backup_run()
+        await asyncio.sleep(interval)
+
+
 # ---------------- http surface ----------------
 
 @asynccontextmanager
@@ -262,6 +303,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(email_worker(), name="email"),
         asyncio.create_task(rollup_loop(), name="rollups"),
         asyncio.create_task(scheduler_loop(), name="scheduler"),
+        asyncio.create_task(backup_loop(), name="backup"),
         asyncio.create_task(_seed_delayed(), name="seed"),
     ]
     LOG.info("worker started")

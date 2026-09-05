@@ -90,7 +90,15 @@ export class AdminService {
         total: Number(r.total),
       };
     }
-    const providerCatalog = require('../../config/provider_catalog.json');
+    // catalog ships with the gateway image via /config volume mount; read from
+    // the mounted path (env-overridable) instead of a compiled-in require.
+    let providerCatalog: unknown = {};
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      providerCatalog = require(process.env.PROVIDER_CATALOG_FILE || '/config/provider_catalog.json');
+    } catch {
+      providerCatalog = {};
+    }
     return {
       accounts,
       models,

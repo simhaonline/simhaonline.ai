@@ -3,6 +3,8 @@
 // OAuth broker, SMTP. The Go gateway consults it for OAuth upstream tokens.
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { AuthModule } from './auth/auth.module';
+import { AuthService } from './auth/auth.service';
 import { json, urlencoded } from 'express';
 import cookieParser from 'cookie-parser';
 
@@ -15,5 +17,9 @@ async function bootstrap() {
   app.enableShutdownHooks();
   await app.listen(port, '0.0.0.0');
   console.log(`Simha control plane listening on :${port}`);
+  // Bootstrap admin once the server is accepting connections.
+  const authModule = app.select(AuthModule);
+  const authService = authModule.get(AuthService);
+  await authService.bootstrapAdmin();
 }
 bootstrap();

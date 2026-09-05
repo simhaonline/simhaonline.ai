@@ -38,13 +38,33 @@ export class AuthService {
   ) {}
 
   async verifyPassword(email: string, password: string): Promise<number | null> {
+    const em = email.toLowerCase().trim();
+    // 5 failed attempts → 15-minute lockout (legacy parity)
+    const lockKey = `lockout:${em}`;
+    const fails = parseInt((await this.redis.get(lockKey)) || '0', 10);
+    if (fails >= 5) {
+      const ttl = await this.redis.ttl(lockKey);
+      throw Object.assign(new Error('locked'), { lockoutSeconds: Math.max(ttl, 1) });
+    }
     const { rows } = await this.pool.query(
       `SELECT id, password_hash, active FROM users WHERE email = $1`,
-      [email.toLowerCase().trim()],
+      [em],
     );
-    if (!rows.length || !rows[0].active) return null;
-    if (!verifyLegacyPassword(password, rows[0].password_hash)) return null;
+    if (!rows.length || !rows[0].active) {
+      await this.recordFail(lockKey);
+      return null;
+    }
+    if (!verifyLegacyPassword(password, rows[0].password_hash)) {
+      await this.recordFail(lockKey);
+      return null;
+    }
+    await this.redis.del(lockKey);
     return rows[0].id as number;
+  }
+
+  private async recordFail(lockKey: string): Promise<void> {
+    const n = await this.redis.incr(lockKey);
+    if (n === 1) await this.redis.expire(lockKey, 900);
   }
 
   async createSession(userId: number): Promise<string> {

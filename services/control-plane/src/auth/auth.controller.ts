@@ -32,7 +32,20 @@ export class AuthController {
   async login(@Body() body: { email?: string; password?: string }, @Res() res: Response) {
     const email = (body.email || '').toLowerCase().trim();
     const password = body.password || '';
-    const userId = await this.auth.verifyPassword(email, password);
+    let userId: number | null;
+    try {
+      userId = await this.auth.verifyPassword(email, password);
+    } catch (err: unknown) {
+      const lockoutSeconds = (err as { lockoutSeconds?: number })?.lockoutSeconds;
+      if (lockoutSeconds) {
+        res.setHeader('Retry-After', String(lockoutSeconds));
+        throw new HttpException(
+          { error: `Account locked — try again in ${Math.ceil(lockoutSeconds / 60)} minutes` },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      throw err;
+    }
     if (!userId) {
       throw new HttpException({ error: 'Invalid email or password' }, HttpStatus.UNAUTHORIZED);
     }

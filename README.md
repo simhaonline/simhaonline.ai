@@ -11,7 +11,7 @@ as a polyglot production platform:
 | Frontend (site, chat, dashboard, docs, status) | **Next.js** | `services/web` | 3000 |
 | Database | **PostgreSQL 16 + pgvector + TimescaleDB** | `database/` | 5433 (host) |
 | Cache / shared state / cooldowns / rate windows | **Valkey** | — | 6380 (host) |
-| Edge router (hostname separation) | nginx | `edge/` | **4142** (4141 held by legacy systemd service) |
+| Edge router | **Plesk nginx proxy** (host) | — | TLS termination, routes `/v1|healthz` → 8080, `/auth|admin|chat/api` → 8081, `/api|/` → 3002 |
 
 ## What the platform does (feature parity with the legacy router)
 
@@ -57,7 +57,43 @@ tools/migrate-sqlite/  One-shot SQLite → PostgreSQL data migration
 
 ```bash
 cp .env.example .env          # fill secrets
-docker compose up -d --build  # edge listens on :4142 — set back to 4141 after legacy ollama-proxy service is stopped
+cp .env.example .env  # then fill POSTGRES_PASSWORD, JWT_SECRET, OAUTH_ENCRYPTION_KEY, ADMIN_PASSWORD
+docker compose up -d --build
+
+## Plesk reverse proxy (no nginx container in the stack)
+
+Create the simhaonline.ai subscription in Plesk with a Let's Encrypt cert, then add
+**Additional nginx directives** (Apache/Nginx Settings → nginx directives):
+
+```nginx
+location ~ ^/(v1/|healthz|gateway-status|internal/refresh-models) {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;          # required for SSE streaming
+    proxy_read_timeout 300s;
+}
+location ~ ^/(auth/|admin/|chat/api/|internal/) {
+    proxy_pass http://127.0.0.1:8081;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_read_timeout 120s;
+    client_max_body_size 16m;
+}
+location / {                      # web app + its BFF (/api/*)
+    proxy_pass http://127.0.0.1:3002;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+}
+```
+
+All app ports are bound to 127.0.0.1 only — Plesk is the only public entry point.
 make smoke                    # end-to-end checks
 ```
 
