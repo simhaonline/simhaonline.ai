@@ -24,6 +24,12 @@ read.md
 
 # Runtime state
 *.log
-.DS_Store.live/
+.DS_Store
 .live/
 backups/
+
+# Design-tool scratch
+.superdesign/
+
+# Working instruction files
+prompt.md
