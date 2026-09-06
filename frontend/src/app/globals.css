@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Workbench streaming cursor + code theme */
+.streaming-cursor{display:inline-block;width:7px;height:15px;margin-left:2px;vertical-align:text-bottom;background:#b3a2ff;animation:simha-blink 1s steps(2) infinite}
+@keyframes simha-blink{50%{opacity:0}}
+.hljs{color:#e6edf3;background:transparent}
+.hljs-keyword,.hljs-selector-tag,.hljs-literal{color:#ff7b72}
+.hljs-string,.hljs-attr{color:#a5d6ff}
+.hljs-title,.hljs-title.function_{color:#d2a8ff}
+.hljs-number,.hljs-symbol{color:#79c0ff}
+.hljs-comment,.hljs-quote{color:#8b949e;font-style:italic}
+.hljs-built_in,.hljs-type{color:#ffa657}
+.hljs-section,.hljs-name{color:#7ee787}
+.hljs-meta{color:#79c0ff}
+
 :root {
   --bg: #0a0d12;
   --panel: #11151d;

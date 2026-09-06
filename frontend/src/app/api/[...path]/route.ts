@@ -9,6 +9,10 @@ const CONTROL = process.env.CONTROL_PLANE_URL || 'http://control-plane:8081';
 function controlPath(path: string[]): string[] {
   if (path[0] === 'admin') return ['admin', 'api', ...path.slice(1)];
   if (path[0] === 'client-keys') return ['api', 'client-keys', ...path.slice(1)];
+  // Workbench: /api/chat/api/v1/* → CP /chat/api/v1/* (v1 controllers).
+  if (path[0] === 'chat' && path[1] === 'api' && path[2] === 'v1') {
+    return ['chat', 'api', 'v1', ...path.slice(3)];
+  }
   if (path[0] === 'chat') return ['chat', 'api', ...path.slice(1)];
   // audit v2 🔴: billing endpoints previously reached CP as /api/billing/…
   // (leading to 404s); the controller lives at /billing/*.
