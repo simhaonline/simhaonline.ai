@@ -148,4 +148,80 @@ export class AuthService {
     );
     await this.redis.publish('simha:email', JSON.stringify({ subject, recipient, text })).catch(() => undefined);
   }
+
+  // ── audit-v2 hardening: verification tokens, reset, signup throttle ────────
+
+  /** Per-IP+email signup throttle: 3 signups / hour sliding window. */
+  async signupThrottleOk(ipHash: string, email: string): Promise<boolean> {
+    const ipKey = `signup:ip:${ipHash}`;
+    const emKey = `signup:em:${sha256Hex(email)}`;
+    const [ipN, emN] = await Promise.all([
+      this.redis.incr(ipKey), this.redis.incr(emKey),
+    ]);
+    if (ipN === 1) await this.redis.expire(ipKey, 3600);
+    if (emN === 1) await this.redis.expire(emKey, 3600);
+    return ipN <= 3 && emN <= 2;
+  }
+
+  /** Mint a one-time token (email_verify | password_reset); stores only the hash. */
+  async createAuthToken(userId: number, kind: 'email_verify' | 'password_reset',
+                        ttlMinutes = 60): Promise<string> {
+    const raw = crypto.randomBytes(32).toString('hex');
+    await this.pool.query(
+      `INSERT INTO auth_tokens(user_id, kind, token_hash, expires_at)
+       VALUES ($1, $2, $3, now() + ($4 || ' minutes')::interval)`,
+      [userId, kind, sha256Hex(raw), String(ttlMinutes)],
+    );
+    return raw;
+  }
+
+  /** Consume a one-time token; returns its user id or null. */
+  async consumeAuthToken(raw: string, kind: 'email_verify' | 'password_reset'): Promise<number | null> {
+    const { rows } = await this.pool.query(
+      `SELECT user_id FROM auth_tokens
+       WHERE token_hash = $1 AND kind = $2 AND used_at IS NULL AND expires_at > now()`,
+      [sha256Hex(raw), kind],
+    );
+    if (!rows.length) return null;
+    const userId = rows[0].user_id as number;
+    await this.pool.query(
+      `UPDATE auth_tokens SET used_at = now() WHERE token_hash = $1 AND kind = $2`,
+      [sha256Hex(raw), kind],
+    );
+    return userId;
+  }
+
+  async markEmailVerified(userId: number): Promise<void> {
+    await this.pool.query(`UPDATE users SET email_verified = TRUE WHERE id = $1`, [userId]);
+  }
+
+  async setPassword(userId: number, password: string): Promise<void> {
+    if (password.length < 10) throw new Error('Password must contain at least 10 characters');
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = `pbkdf2$${salt}$${pbkdf2Hash(password, salt)}`;
+    await this.pool.query(
+      `UPDATE users SET password_hash = $1 WHERE id = $2`,
+      [hash, userId],
+    );
+    // revoke all sessions after a password change
+    await this.pool.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+    await this.pool.query(
+      `INSERT INTO audit_log(actor, action, target) VALUES ($1, $2, $3)`,
+      ['admin', 'auth.password_change', String(userId)],
+    );
+  }
+
+  /** Find a verified-active user by email (never reveals existence via timing). */
+  async findUserByEmail(email: string): Promise<number | null> {
+    const { rows } = await this.pool.query(
+      `SELECT id FROM users WHERE email = $1 AND active`, [email.toLowerCase().trim()]);
+    return rows.length ? (rows[0].id as number) : null;
+  }
+
+  /** Public-safe user view used by /auth/me after hardening. */
+  async emailVerified(userId: number): Promise<boolean> {
+    const { rows } = await this.pool.query(
+      `SELECT email_verified FROM users WHERE id = $1`, [userId]);
+    return Boolean(rows.length && rows[0].email_verified);
+  }
 }

@@ -30,11 +30,12 @@ export default function DocsPage() {
   -H "Authorization: Bearer sek_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "claude-sonnet-4",
+    "model": "anthropic/claude-sonnet-4",
     "messages": [{"role": "user", "content": "Summarise the router architecture."}]
   }'`}</pre>
             <p style={{ marginTop: 10 }}>
-              Streaming works with <code>"stream": true</code> (SSE chunks, OpenAI shape).
+              Model IDs use the <code>provider/model</code> form from <code>/v1/models</code>; unprefixed
+              aliases resolve when the model name is unique across providers.
             </p>
           </div>
           <div className="card" style={{ marginBottom: 18 }}>

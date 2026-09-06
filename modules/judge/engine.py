@@ -541,7 +541,7 @@ class PolicyReq(BaseModel):
     secondary: Optional[dict] = None
     tie_breaker: Optional[dict] = None
     fallback: Optional[dict] = None
-    consensus_judges: int = Field(1, ge=1, le=5)
+    consensus_judges: int = Field(3, ge=1, le=5)
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────

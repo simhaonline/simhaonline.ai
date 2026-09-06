@@ -49,6 +49,13 @@ export class AuthController {
     if (!userId) {
       throw new HttpException({ error: 'Invalid email or password' }, HttpStatus.UNAUTHORIZED);
     }
+    // unverified accounts cannot sign in (audit v2 🔴 verification gate)
+    if (!(await this.auth.emailVerified(userId))) {
+      throw new HttpException(
+        { error: 'Verify your email address before signing in — check your inbox for the confirmation link.' },
+        HttpStatus.FORBIDDEN,
+      );
+    }
     const token = await this.auth.createSession(userId);
     setSessionCookie(res, token);
     return res.json({ ok: true });
@@ -85,6 +92,13 @@ export class AuthController {
       );
     }
     try {
+      // per-IP + per-email signup throttle (audit v2 🔴 signup abuse)
+      if (!(await this.auth.signupThrottleOk(hashIp(req.ip || ''), email))) {
+        throw new HttpException(
+          { error: 'Too many signup attempts — try again later' },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
       const userId = await this.auth.createUser(email, password, 'operator', {
         terms_accepted: true,
         privacy_accepted: true,
@@ -92,19 +106,25 @@ export class AuthController {
         ip_hash: hashIp(req.ip || ''),
         accepted_at: new Date().toISOString(),
       });
+      // email verification: account stays unverified until token consumed.
+      const verifyToken = await this.auth.createAuthToken(userId, 'email_verify', 1440);
+      const verifyUrl = `https://platform.simhaonline.ai/verify-email?token=${verifyToken}`;
       void this.auth.sendEmail(
-        'Welcome to Simha Edge Router',
+        'Verify your Simha Edge Router account',
         email,
-        'Your Simha Edge Router operator account has been created. Sign in at https://platform.simhaonline.ai/login',
+        `Confirm your account: ${verifyUrl}\nThe link expires in 24 hours.`,
       );
       void this.auth.sendEmail(
         'New Simha Edge Router signup',
         process.env.ADMIN_EMAIL || 'admin@simhaonline.ai',
-        `A new operator account was created for ${email}.`,
+        `A new operator account was created for ${email} (unverified).`,
       );
+      // Session is issued but the account cannot route until verified;
+      // login of unverified users is blocked (see auth/login) and the
+      // workbench shows a verification prompt via /auth/me.
       const token = await this.auth.createSession(userId);
       setSessionCookie(res, token);
-      return res.status(HttpStatus.CREATED).json({ ok: true });
+      return res.status(HttpStatus.CREATED).json({ ok: true, verification_required: true });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {
         throw new HttpException(
@@ -122,7 +142,8 @@ export class AuthController {
     if (!user) {
       throw new HttpException({ error: 'Authentication required' }, HttpStatus.UNAUTHORIZED);
     }
-    return res.json(user);
+    const email_verified = await this.auth.emailVerified(user.id);
+    return res.json({ ...user, email_verified });
   }
 
   @Post('auth/logout')
@@ -133,5 +154,86 @@ export class AuthController {
       path: '/',
     });
     return res.json({ ok: true });
+  }
+
+  // ── audit v2 🔴: account recovery + verification endpoints ─────────────────
+
+  /** Confirm an email-verification token (from the signup email link). */
+  @Post('auth/verify-email')
+  async verifyEmail(@Body() body: { token?: string }, @Res() res: Response) {
+    const token = String(body.token || '').trim();
+    if (!token) throw new HttpException({ error: 'token required' }, HttpStatus.BAD_REQUEST);
+    const userId = await this.auth.consumeAuthToken(token, 'email_verify');
+    if (!userId) throw new HttpException({ error: 'Invalid or expired verification link' }, HttpStatus.BAD_REQUEST);
+    await this.auth.markEmailVerified(userId);
+    return res.json({ ok: true, verified: true });
+  }
+
+  /** Resend the verification email (throttled via the same token table). */
+  @Post('auth/resend-verification')
+  async resendVerification(@Req() req: Request, @Res() res: Response) {
+    const user = await this.auth.sessionUser(req.cookies?.[COOKIE]);
+    if (!user) throw new HttpException({ error: 'Authentication required' }, HttpStatus.UNAUTHORIZED);
+    if (await this.auth.emailVerified(user.id)) return res.json({ ok: true, already_verified: true });
+    const verifyToken = await this.auth.createAuthToken(user.id, 'email_verify', 1440);
+    const verifyUrl = `https://platform.simhaonline.ai/verify-email?token=${verifyToken}`;
+    void this.auth.sendEmail(
+      'Verify your Simha Edge Router account',
+      user.email,
+      `Confirm your account: ${verifyUrl}\nThe link expires in 24 hours.`,
+    );
+    return res.json({ ok: true, resent: true });
+  }
+
+  /** Request a password-reset link. Always 202 — never reveals account existence. */
+  @Post('auth/forgot-password')
+  async forgotPassword(@Req() req: Request, @Res() res: Response, @Body() body: { email?: string }) {
+    const email = (body.email || '').toLowerCase().trim();
+    if (!email) throw new HttpException({ error: 'email required' }, HttpStatus.BAD_REQUEST);
+    const userId = await this.auth.findUserByEmail(email);
+    if (userId) {
+      const resetToken = await this.auth.createAuthToken(userId, 'password_reset', 30);
+      const resetUrl = `https://platform.simhaonline.ai/reset-password?token=${resetToken}`;
+      void this.auth.sendEmail(
+        'Reset your Simha Edge Router password',
+        email,
+        `Reset your password: ${resetUrl}\nThe link expires in 30 minutes. If you did not request this, ignore this email.`,
+      );
+    }
+    return res.status(HttpStatus.ACCEPTED).json({ ok: true });
+  }
+
+  /** Consume a reset token and set the new password (sessions revoked). */
+  @Post('auth/reset-password')
+  async resetPassword(@Body() body: { token?: string; password?: string }, @Res() res: Response) {
+    const token = String(body.token || '').trim();
+    const password = String(body.password || '');
+    if (!token) throw new HttpException({ error: 'token required' }, HttpStatus.BAD_REQUEST);
+    const userId = await this.auth.consumeAuthToken(token, 'password_reset');
+    if (!userId) throw new HttpException({ error: 'Invalid or expired reset link' }, HttpStatus.BAD_REQUEST);
+    try {
+      await this.auth.setPassword(userId, password);
+    } catch (err: unknown) {
+      throw new HttpException({ error: (err as Error).message || 'invalid password' }, HttpStatus.BAD_REQUEST);
+    }
+    return res.json({ ok: true, password_changed: true });
+  }
+
+  /** Change password while signed in (requires the current password). */
+  @Post('auth/change-password')
+  async changePassword(@Req() req: Request, @Res() res: Response,
+                       @Body() body: { current_password?: string; new_password?: string }) {
+    const user = await this.auth.sessionUser(req.cookies?.[COOKIE]);
+    if (!user) throw new HttpException({ error: 'Authentication required' }, HttpStatus.UNAUTHORIZED);
+    const verified = await this.auth.verifyPassword(user.email, String(body.current_password || ''));
+    if (!verified || verified !== user.id) {
+      throw new HttpException({ error: 'Current password is incorrect' }, HttpStatus.UNAUTHORIZED);
+    }
+    try {
+      await this.auth.setPassword(user.id, String(body.new_password || ''));
+    } catch (err: unknown) {
+      throw new HttpException({ error: (err as Error).message || 'invalid password' }, HttpStatus.BAD_REQUEST);
+    }
+    return res.json({ ok: true, password_changed: true });
   }
 }

@@ -402,6 +402,20 @@ func (s *Store) KnownModels(ctx context.Context) []string {
 	return arr
 }
 
+// ModelExists reports whether the model is in the discovered catalog.
+// The keyAllMod set is authoritative (models the gateway can serve).
+func (s *Store) ModelExists(ctx context.Context, model string) bool {
+	if model == "" {
+		return false
+	}
+	msg := s.Valkey.Do(ctx, s.Valkey.B().Sismember().Key(keyAllMod).Member(model).Build())
+	n, err := msg.AsInt64()
+	if err != nil {
+		return false
+	}
+	return n == 1
+}
+
 // AccountsForModel returns account names eligible for a model.
 func (s *Store) AccountsForModel(ctx context.Context, model string) []string {
 	if model == "" {

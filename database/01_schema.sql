@@ -72,7 +72,7 @@ CREATE TABLE discovered_models (
 CREATE TABLE model_policies (
     model TEXT PRIMARY KEY,
     max_input_tokens INTEGER NOT NULL DEFAULT 128000,
-    min_output_tokens INTEGER NOT NULL DEFAULT 8192,
+    min_output_tokens INTEGER NOT NULL DEFAULT 0,
     max_output_tokens INTEGER NOT NULL DEFAULT 16384,
     max_tool_result_chars INTEGER NOT NULL DEFAULT 24000,
     dedupe_system_messages BOOLEAN NOT NULL DEFAULT TRUE,

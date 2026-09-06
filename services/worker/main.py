@@ -528,3 +528,10 @@ async def status_recent(limit: int = 15):
             for r in reversed(rows)
         ]
     }
+
+
+@app.get("/status-data")
+async def status_data():
+    """Plesk-route alias for /status/recent (status.simhaonline.ai proxies
+    ^/(status-data|status-subscribe)$ here — audit v2 🟡 wiring fix)."""
+    return await status_recent(limit=30)

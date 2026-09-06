@@ -114,10 +114,11 @@ type Policy struct {
 }
 
 // DefaultPolicy is the wildcard fallback.
+// MinOutputTokens is reserved (not yet enforced by the request path); 0 = none.
 func DefaultPolicy() Policy {
 	return Policy{
 		MaxInputTokens:       128000,
-		MinOutputTokens:      8192,
+		MinOutputTokens:      0,
 		MaxOutputTokens:      16384,
 		MaxToolResultChars:   24000,
 		DedupeSystemMessages: true,

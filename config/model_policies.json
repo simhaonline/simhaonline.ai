@@ -1,28 +1,28 @@
 {
   "*": {
     "max_input_tokens": 128000,
-    "min_output_tokens": 8192,
+    "min_output_tokens": 0,
     "max_output_tokens": 16384,
     "max_tool_result_chars": 24000,
     "dedupe_system_messages": true
   },
   "glm-5.3-flash": {
     "max_input_tokens": 128000,
-    "min_output_tokens": 8192,
+    "min_output_tokens": 0,
     "max_output_tokens": 65536,
     "max_tool_result_chars": 40000,
     "dedupe_system_messages": true
   },
   "gpt-oss:120b": {
     "max_input_tokens": 128000,
-    "min_output_tokens": 16384,
+    "min_output_tokens": 0,
     "max_output_tokens": 32768,
     "max_tool_result_chars": 32000,
     "dedupe_system_messages": true
   },
   "deepseek-v4-pro:0813": {
     "max_input_tokens": 128000,
-    "min_output_tokens": 16384,
+    "min_output_tokens": 0,
     "max_output_tokens": 32768,
     "max_tool_result_chars": 32000,
     "dedupe_system_messages": true

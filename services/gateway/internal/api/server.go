@@ -505,6 +505,18 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 
 	candidates := s.st.EligibleAccountsForTask(ctx, model, protocol, task, inputModality, outputModality, s.cfg.UsageThreshold)
 	if len(candidates) == 0 {
+		// Audit v2 🟠: distinguish "unknown model" (client mistake, 4xx) from
+		// "all upstreams busy" (429). A model no account serves is not a
+		// capacity problem.
+		if model != "" && !s.st.ModelExists(ctx, model) {
+			writeJSON(w, 404, map[string]any{
+				"error":    "Unknown model: " + model,
+				"code":     "model_not_found",
+				"model":    model,
+				"retryable": false,
+			})
+			return
+		}
 		// Diagnosability: when every account for the model is exhausted the
 		// client only sees "no available account". Log the per-account reason
 		// (cooldown / model absence / task capability / capacity) and include a
@@ -619,6 +631,25 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 			log.Printf("[forward] auth failed for %s (%d)", acc.Name, resp.StatusCode)
 			continue
 
+		case resp.StatusCode == 402:
+			// Upstream 402 (insufficient balance / credits) is a SERVER-side
+			// capacity problem, not a client error (audit v2 🟠). Circuit-break
+			// the account with an extended cooldown so the router fails over
+			// and the raw provider message never reaches the client.
+			strikes := s.st.AddStrike(ctx, acc.Name)
+			cooldown := int64(s.cfg.CooldownSeconds) * (1 << min64(strikes-1, 6))
+			if cooldown > 3600 {
+				cooldown = 3600
+			}
+			s.st.SetCooldown(ctx, acc.Name, cooldown)
+			// telemetry: 5xx so the ops error-rate reflects provider health
+			_ = s.st.RecordUsage(ctx, acc.Name, model, 503, 0, 0, 0, ac.UserID, ac.ClientKeyID)
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			log.Printf("[forward] upstream balance/credit exhausted for %s — cooldown %ds (strike %d)",
+				acc.Name, cooldown, strikes)
+			continue
+
 		case resp.StatusCode == 404 && model != "":
 			s.st.SetCooldown(ctx, acc.Name, 5)
 			io.Copy(io.Discard, resp.Body)
@@ -650,6 +681,10 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 	reasons := s.explainExhaustion(ctx, model, protocol, task, inputModality, outputModality)
 	log.Printf("[forward] candidates exhausted for model=%q task=%q reasons=%s", model, task, mustJSON(reasons))
 	w.Header().Set("Retry-After", "5")
+	// audit v2 🟡: standard rate-limit visibility
+	w.Header().Set("X-RateLimit-Limit", "60")
+	w.Header().Set("X-RateLimit-Remaining", "0")
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(5*time.Second).Unix()))
 	w.Header().Set("X-Simha-Exhaustion", string(mustJSON(reasons)))
 	writeJSON(w, 429, map[string]any{"error": "No available account (all cooling down, at capacity, or lacking model).", "code": "upstream_capacity", "model": model, "retryable": true, "accounts": reasons})
 }

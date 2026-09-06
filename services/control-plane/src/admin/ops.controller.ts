@@ -40,10 +40,6 @@ export class OpsController {
     const gateway = process.env.GATEWAY_URL || 'http://gateway:8080';
     const out: Record<string, unknown> = {};
 
-    // gateway health + registry counts (public endpoint, no auth)
-    out.gateway = await fetch(`${gateway}/gateway-status`)
-      .then((r) => r.json()).catch(() => ({ status: 'unreachable' }));
-
     // engine health (contract endpoints, loopback network)
     const engines = await Promise.all(Object.entries(ENGINE_BASES).map(async ([name, base]) => {
       const t0 = Date.now();
@@ -54,15 +50,23 @@ export class OpsController {
     }));
     out.engines = engines;
 
-    // real error/latency metrics from request_history (24h + 7d)
+    // real error/latency metrics from request_history (24h + 7d).
+    // Latency proxy: the time between the two most recent request_history
+    // inserts is meaningless — instead we measure the gateway probe latency
+    // here and expose upstream latency via engine probes; per-model latency
+    // telemetry is queued for gateway instrumentation (see ops note).
+    const started = Date.now();
+    const gw = await fetch(`${gateway}/gateway-status`, { signal: AbortSignal.timeout(5000) })
+      .then((r) => r.json()).catch(() => null);
+    out.gateway = gw || { status: 'unreachable' };
+    out.gateway_latency_ms = Date.now() - started;
     const { rows: metrics } = await this.pool.query(
       `SELECT
          COUNT(*)::bigint AS requests,
          COUNT(*) FILTER (WHERE status >= 500)::bigint AS server_errors,
          COUNT(*) FILTER (WHERE status = 429)::bigint AS rate_limited,
          COUNT(*) FILTER (WHERE status >= 400 AND status < 500)::bigint AS client_errors,
-         ROUND(100.0 * COUNT(*) FILTER (WHERE status >= 400) / GREATEST(COUNT(*), 1), 2) AS error_rate,
-         ROUND(AVG(0)::numeric, 2) AS latency_placeholder
+         ROUND(100.0 * COUNT(*) FILTER (WHERE status >= 400) / GREATEST(COUNT(*), 1), 2) AS error_rate
        FROM request_history WHERE requested_at > now() - interval '24 hours'`);
     const { rows: perModel } = await this.pool.query(
       `SELECT model, COUNT(*)::bigint AS requests,

@@ -10,6 +10,9 @@ function controlPath(path: string[]): string[] {
   if (path[0] === 'admin') return ['admin', 'api', ...path.slice(1)];
   if (path[0] === 'client-keys') return ['api', 'client-keys', ...path.slice(1)];
   if (path[0] === 'chat') return ['chat', 'api', ...path.slice(1)];
+  // audit v2 🔴: billing endpoints previously reached CP as /api/billing/…
+  // (leading to 404s); the controller lives at /billing/*.
+  if (path[0] === 'billing') return ['billing', ...path.slice(1)];
   return path;
 }
 

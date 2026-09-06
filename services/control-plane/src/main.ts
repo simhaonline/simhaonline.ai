@@ -25,6 +25,9 @@ async function bootstrap() {
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    // audit v2 🟠: additional hardening
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.removeHeader('X-Powered-By');
     next();
   });
   app.use(cookieParser());
