@@ -90,7 +90,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
     .filter((x) => x.items.length);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+    <div className="wb-root flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
       <aside className="flex w-[260px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-900">
         {/* logo row */}
         <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-3">
@@ -124,8 +124,8 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
           </div>
         </div>
 
-        {/* tab pills */}
-        <div className="mt-3 flex gap-1 px-3">
+        {/* tab pills — segmented control */}
+        <div className="mx-3 mt-3 flex rounded-lg border border-zinc-800 bg-zinc-950 p-0.5">
           {TABS.map((t) => (
             <button
               key={t}
@@ -133,8 +133,8 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
               aria-selected={tab === t}
               role="tab"
               className={cn(
-                'flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium cursor-pointer',
-                tab === t ? 'bg-zinc-800 text-violet-400' : 'text-zinc-500 hover:text-zinc-200',
+                'flex-1 rounded-[6px] px-2 py-1.5 text-[11.5px] font-medium transition-colors cursor-pointer',
+                tab === t ? 'bg-zinc-800 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-200',
               )}
             >
               {t}
@@ -193,9 +193,13 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
                 </div>
               ))}
               {!visible.length && (
-                <div className="grid place-items-center gap-2 px-2 py-14 text-center">
-                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-zinc-800 text-violet-400">⌁</span>
-                  <p className="text-xs text-zinc-500">No conversations yet — press Ctrl+N to start</p>
+                <div className="grid place-items-center gap-3 px-2 py-16 text-center">
+                  <span className="grid h-11 w-11 place-items-center rounded-xl border border-zinc-800 bg-zinc-800/60 text-lg text-violet-400">⌁</span>
+                  <p className="text-[12.5px] leading-5 text-zinc-500">
+                    No conversations yet.
+                    <br />
+                    Press <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1 py-0.5 text-[10px] text-zinc-300">Ctrl+N</kbd> to start
+                  </p>
                 </div>
               )}
             </div>
@@ -206,27 +210,27 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
         </div>
 
         {/* footer */}
-        <div className="border-t border-zinc-800 px-3 py-2.5">
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+        <div className="border-t border-zinc-800 px-3 py-3">
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
             <span
               className={cn(
                 'h-2 w-2 rounded-full',
-                !health || health.status === 'ok' && health.latency_ms <= 1000 ? 'bg-green-400' : health.status === 'ok' ? 'bg-amber-400' : 'bg-red-400',
+                !health || (health.status === 'ok' && health.latency_ms <= 1000) ? 'bg-green-400' : health.status === 'ok' ? 'bg-amber-400' : 'bg-red-400',
               )}
               aria-hidden
             />
             Router online
-            <span className="ml-auto flex items-center gap-1.5">
-              <Link href="https://platform.simhaonline.ai" className="hover:text-zinc-200">Control Center</Link>
-            </span>
+            <Link href="https://platform.simhaonline.ai" className="ml-auto text-[11px] text-zinc-400 hover:text-zinc-100">
+              Control Center
+            </Link>
           </div>
-          <div className="mt-2 flex items-center gap-1.5">
+          <div className="mt-2.5 flex items-center gap-1.5">
             <button
               onClick={() => toggleCompareMode()}
               aria-pressed={compareMode.enabled}
               className={cn(
-                'flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] cursor-pointer',
-                compareMode.enabled ? 'border-violet-500 bg-violet-500/10 text-violet-400' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200',
+                'flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] cursor-pointer',
+                compareMode.enabled ? 'border-violet-500 bg-violet-500/10 text-violet-300' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200',
               )}
             >
               ⇄ Compare
@@ -270,11 +274,11 @@ function ConversationRow({
         <Link
           href={`/chat/${c.id}`}
           className={cn(
-            'flex items-center justify-between rounded-md px-2.5 py-1.5 text-xs hover:bg-zinc-800/70',
-            active && 'bg-zinc-800 text-violet-300',
+            'flex items-center justify-between rounded-lg px-2.5 py-2 text-[13px] transition-colors hover:bg-zinc-800/80',
+            active && 'bg-zinc-800 text-zinc-100',
           )}
         >
-          <span className="min-w-0 flex-1 truncate text-zinc-200">{c.title}</span>
+          <span className="min-w-0 flex-1 truncate text-zinc-300 group-hover:text-zinc-100">{c.title}</span>
           <span className="ml-2 shrink-0 text-[10px] text-zinc-600">{relative(c.updated_at)}</span>
         </Link>
       )}

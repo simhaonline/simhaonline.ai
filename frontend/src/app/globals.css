@@ -15,6 +15,46 @@
 .hljs-section,.hljs-name{color:#7ee787}
 .hljs-meta{color:#79c0ff}
 
+/* Workbench (chat) design tokens — violet system, no gold anywhere.
+   The legacy :root --accent (#d4a643) belongs to the marketing site's
+   old palette; the chat app must never pick it up (error.log/Screenshot_15
+   fix: gold focus outline on the composer textarea). */
+:root:has(.wb-root) {
+  --accent: #8b5cf6;
+  --accent-dim: #6d28d9;
+}
+
+/* textarea/input reset inside the workbench: no per-field borders, the
+   wrapper owns the border (ChatGPT-style single outlined composer). */
+.wb-root textarea,
+.wb-root input,
+.wb-root select {
+  border: 0;
+  outline: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  width: 100%;
+  box-shadow: none;
+}
+.wb-root textarea:focus,
+.wb-root input:focus,
+.wb-root select:focus {
+  outline: none;
+  border: 0;
+  box-shadow: none;
+}
+.wb-root button:focus-visible,
+.wb-root input:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 1px;
+}
+/* the composer textarea is focused by default — no ring on it, the shell
+   border already communicates focus (ChatGPT behavior) */
+.wb-root textarea:focus-visible {
+  outline: none;
+}
+
 :root {
   --bg: #0a0d12;
   --panel: #11151d;

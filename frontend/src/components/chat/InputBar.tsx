@@ -1,11 +1,12 @@
 'use client';
 
-// (7) components/chat/InputBar.tsx — composer: attachments, auto-resize
-// textarea, upload/tools/voice/context buttons, model selector, workspace
-// scoping, send/stop.
+// (7) components/chat/InputBar.tsx — ChatGPT-class composer: one outlined
+// rounded-3xl shell; textarea on top, tool row below (left: attach/tools/
+// voice/context · right: model picker, workspace, send/stop). No per-field
+// borders (globals resets fields inside .wb-root).
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Mic, Paperclip, Puzzle, Square } from 'lucide-react';
+import { ArrowUp, Mic, Paperclip, Plus, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { wbApi } from '@/lib/wb-api';
 import { useChat } from '@/store/chat';
@@ -37,20 +38,18 @@ export function InputBar({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, 48), 192)}px`;
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), 200)}px`;
   }, [draft]);
 
-  function focus() {
+  useEffect(() => {
     requestAnimationFrame(() => textareaRef.current?.focus());
-  }
-  useEffect(() => { focus(); }, [/* focus on mount */]);
+  }, []);
 
   function submit() {
     const text = draft.trim();
     if (!text || streaming || disabled) return;
     onSend({ text, fileIds: useChat.getState().attachedFiles.map((f) => f.fileId) });
     setDraft('');
-    focus();
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -108,14 +107,16 @@ export function InputBar({
     setRecording(true);
   }
 
+  const toolBtn = 'grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer disabled:opacity-50';
+
   return (
-    <div className="sticky bottom-0 bg-zinc-900 p-3">
-      <div className="mx-auto max-w-3xl">
+    <div className="sticky bottom-0 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent pb-3 pt-2">
+      <div className="mx-auto w-full max-w-3xl px-4">
         {/* attachment previews */}
-        {useChat.getState().attachedFiles.length > 0 && (
+        {attachedFiles.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
-            {useChat.getState().attachedFiles.map((f) => (
-              <span key={f.fileId} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300">
+            {attachedFiles.map((f) => (
+              <span key={f.fileId} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11px] text-zinc-300">
                 <Paperclip size={10} className="text-violet-400" />
                 {f.name}
                 <button
@@ -130,8 +131,19 @@ export function InputBar({
           </div>
         )}
 
-        <div className="rounded-xl border border-zinc-700 bg-zinc-950 focus-within:border-violet-500">
-          <div className="flex items-end gap-1.5 p-2">
+        {/* the composer shell — the only bordered element */}
+        <div className="rounded-[22px] border border-zinc-700 bg-zinc-900 shadow-[0_10px_40px_rgba(0,0,0,0.45)] transition-colors focus-within:border-zinc-500 hover:border-zinc-600">
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onKeyDown}
+            rows={1}
+            placeholder="Ask anything…"
+            aria-label="Message"
+            className="max-h-[200px] min-h-[52px] w-full resize-none bg-transparent px-5 pt-4 text-[15px] leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+          />
+          <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
             {/* left tools */}
             <div className="flex items-center gap-0.5">
               <input
@@ -142,63 +154,43 @@ export function InputBar({
                 accept="image/*,application/pdf,.txt,.md,.csv,.xlsx,.docx"
                 onChange={(e) => void upload(e.target.files)}
               />
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                title="Upload files"
-                aria-label="Upload files"
-                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer disabled:opacity-50"
-              >
-                ＋
+              <button onClick={() => fileRef.current?.click()} disabled={uploading} title="Attach files" aria-label="Attach files" className={toolBtn}>
+                <Plus size={17} />
               </button>
               <button
                 onClick={() => setNotice(enabledPlugins.length ? 'Toggle tools per-message from the Tools menu.' : 'Enable plugins under Integrations first.')}
-                title="Tools"
-                aria-label="Tools"
-                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
+                title="Tools" aria-label="Tools" className={toolBtn}
               >
-                ⌘
+                <PuzzleGlyph />
               </button>
               <button
                 onClick={toggleVoice}
-                title="Voice input"
-                aria-label="Voice input"
-                className={cn(
-                  'rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer',
-                  recording && 'animate-pulse bg-red-500/20 text-red-400',
-                )}
+                title="Voice input" aria-label="Voice input"
+                className={cn(toolBtn, recording && 'animate-pulse bg-red-500/15 text-red-400')}
               >
                 <Mic size={16} />
               </button>
               <button
                 onClick={() => setNotice('Attach workspace context from the Library tab.')}
-                title="Context"
-                aria-label="Context"
-                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
+                title="Context" aria-label="Context" className={toolBtn}
               >
-                ◉
+                <span className="text-[15px] leading-none" aria-hidden>◎</span>
               </button>
+              {activePersona && (
+                <span className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 py-1 pl-1.5 pr-2.5 text-[11px] text-violet-300">
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: activePersona.color }} aria-hidden />
+                  {activePersona.name}
+                </span>
+              )}
             </div>
-
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKeyDown}
-              rows={1}
-              placeholder="Ask anything…"
-              aria-label="Message"
-              className="max-h-48 min-h-12 flex-1 resize-none bg-transparent px-1 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
-            />
 
             {/* right controls */}
             <div className="flex items-center gap-1.5">
               <ModelSelector />
               <button
                 onClick={() => setNotice('Workspace scoping: pick a workspace in the sidebar footer.')}
-                title="Workspace scope"
-                aria-label="Workspace scope"
-                className="hidden rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:border-zinc-600 cursor-pointer sm:block"
+                title="Workspace scope" aria-label="Workspace scope"
+                className="hidden rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:border-zinc-500 cursor-pointer sm:block"
               >
                 ◫ Workspace
               </button>
@@ -207,9 +199,9 @@ export function InputBar({
                   onClick={onStop}
                   aria-label="Stop generating"
                   title="Stop generating"
-                  className="grid h-9 w-9 place-items-center rounded-lg bg-red-500 text-white hover:bg-red-400 cursor-pointer"
+                  className="grid h-9 w-9 place-items-center rounded-full bg-zinc-100 text-zinc-950 hover:bg-white cursor-pointer"
                 >
-                  <span className="block h-3 w-3 rounded-[2px] bg-white" aria-hidden />
+                  <Square size={13} className="fill-current" />
                 </button>
               ) : (
                 <button
@@ -217,33 +209,27 @@ export function InputBar({
                   disabled={!draft.trim() || disabled}
                   aria-label="Send message"
                   title="Send (Enter)"
-                  className="grid h-9 w-9 place-items-center rounded-lg bg-violet-500 text-white hover:bg-violet-400 cursor-pointer disabled:opacity-40"
+                  className="grid h-9 w-9 place-items-center rounded-full bg-violet-500 text-white transition-opacity hover:bg-violet-400 cursor-pointer disabled:opacity-30"
                 >
-                  <ArrowUp size={16} />
+                  <ArrowUp size={17} />
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        <div className="mt-2 flex items-center justify-between px-1 text-[10px] text-zinc-600">
-          <span>
-            {activePersona ? (
-              <span className="text-zinc-400">
-                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle" style={{ background: activePersona.color }} />
-                {activePersona.name} ·
-              </span>
-            ) : null}
-            {' '}Enter to send · Shift+Enter for newline · Ctrl+K for commands
-          </span>
+        <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-zinc-600">
+          <span>Enter to send · Shift+Enter for newline · Ctrl+K for commands</span>
           <span>Simha can make mistakes. Verify important information.</span>
         </div>
         {notice && <p className="mt-1 px-1 text-[11px] text-amber-400" role="status">{notice}</p>}
       </div>
-      {/* keep Puzzle import used for tree-shaking stability */}
-      <span className="hidden"><Puzzle size={1} /></span>
     </div>
   );
+}
+
+function PuzzleGlyph() {
+  return <span className="text-[15px] leading-none" aria-hidden>⌘</span>;
 }
 
 interface SpeechRecognitionLike {

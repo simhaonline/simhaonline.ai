@@ -1,7 +1,8 @@
 'use client';
 
-// (3) app/(chat)/chat/page.tsx — empty state: centered brand heading,
-// 2×2 suggestion cards that prefill the composer.
+// (3) app/(chat)/chat/page.tsx — empty state: one centered column, quiet
+// brand line, big question, 2×2 suggestion cards, composer aligned to
+// the same grid. Everything shares max-w-3xl so the eye lands center.
 
 import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -18,10 +19,9 @@ const SUGGESTIONS = [
 
 export default function ChatEmptyPage() {
   const router = useRouter();
-  const { setDraft, selectedModel } = useChat();
+  const { setDraft } = useChat();
 
   const sendWith = useCallback(async (text: string) => {
-    // create the conversation immediately, then land on it with the draft
     setDraft(text);
     try {
       const c = await wbApi.conversations.create(text.slice(0, 80));
@@ -33,29 +33,34 @@ export default function ChatEmptyPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-violet-400">Simha Workbench</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-50">What can I help with?</h1>
-        <p className="mt-2 max-w-md text-center text-sm text-zinc-500">
-          Ask anything — the best available model answers automatically.
-        </p>
-        <div className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-2.5 sm:grid-cols-2">
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s.title}
-              onClick={() => { setDraft(s.prompt); void sendWith(s.prompt); }}
-              className="group flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-left hover:border-violet-500/60 hover:bg-zinc-800/60 cursor-pointer"
-            >
-              <span className="flex items-center gap-3">
-                <span className="text-violet-400" aria-hidden>{s.icon}</span>
-                <span>
-                  <b className="block text-[13px] text-zinc-100">{s.title}</b>
-                  <small className="text-[11px] text-zinc-500">{s.hint}</small>
+      <div className="flex flex-1 items-center justify-center overflow-auto px-6">
+        <div className="w-full max-w-3xl pb-10">
+          <div className="text-center">
+            <h1 className="text-[28px] font-semibold tracking-tight text-zinc-50">
+              What can I help with?
+            </h1>
+            <p className="mt-2 text-[15px] text-zinc-400">
+              Ask anything — the best available model answers automatically.
+            </p>
+          </div>
+
+          <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s.title}
+                onClick={() => { setDraft(s.prompt); void sendWith(s.prompt); }}
+                className="group flex items-center gap-3.5 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-800/80 cursor-pointer"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-zinc-700/70 bg-zinc-800/60 text-[15px] text-violet-400" aria-hidden>
+                  {s.icon}
                 </span>
-              </span>
-              <span className="text-zinc-600 transition-transform group-hover:translate-x-0.5" aria-hidden>→</span>
-            </button>
-          ))}
+                <span className="min-w-0">
+                  <b className="block text-[13.5px] font-medium text-zinc-100">{s.title}</b>
+                  <small className="mt-0.5 block truncate text-[12px] text-zinc-500">{s.hint}</small>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       <InputBar onSend={({ text }) => void sendWith(text)} onStop={() => undefined} streaming={false} />

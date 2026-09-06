@@ -49,7 +49,8 @@ export default function ConversationPage() {
         wbApi.conversations.list(),
       ]);
       setMessages(conversationId, d.messages as ChatMessage[]);
-      const conv = convs.conversations.find((c) => c.id === conversationId);
+      // ids are strings over the wire ("8") — compare loosely
+      const conv = convs.conversations.find((c) => String(c.id) === String(conversationId));
       if (conv) setTitle(conv.title);
     } catch (e) {
       setStreamError(String((e as Error).message || e));
@@ -234,8 +235,9 @@ export default function ConversationPage() {
         ) : (
           <div className="relative flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
-              <div ref={scrollRef} className="flex-1 space-y-5 overflow-auto px-5 py-5">
+              <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-6">
                 <MessageListErrorBoundary onRetry={() => void load()}>
+                <div className="mx-auto w-full max-w-3xl space-y-5">
                 {loading && <p className="pt-10 text-center text-xs text-zinc-600">Loading conversation…</p>}
                 {(messages[conversationId] || []).map((m) => (
                   <MessageBubble
@@ -259,6 +261,7 @@ export default function ConversationPage() {
                     </Button>
                   </Card>
                 )}
+                </div>
                 </MessageListErrorBoundary>
               </div>
               <InputBar onSend={send} onStop={() => abortRef.current?.abort()} streaming={isStreaming} />
