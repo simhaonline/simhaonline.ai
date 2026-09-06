@@ -5,7 +5,7 @@ import Link from 'next/link';
 import TopBar from '@/components/TopBar';
 
 interface ChatSummary { id: number; title: string; updated_at: string; }
-interface Message { id?: number; role: string; content: string; model?: string; }
+interface Message { id?: number; role: string; content: string; model?: string; routing_score?: string; routing_elo?: string; }
 interface Feature { id: number; kind: 'plugin' | 'agent' | 'skill' | string; slug: string; name: string; description: string; enabled: boolean; effective_permission?: string; }
 interface LibraryAsset { id: string; asset_type: string; name: string; description: string; tags: string[]; current_version: string; quality_score?: number; }
 interface SavedResource { id: number; title: string; kind: string; content: string; created_at: string; }
@@ -252,11 +252,13 @@ export default function ChatPage() {
         throw new Error(d.error || `request failed (${r.status})`);
       }
       const headerModel = r.headers.get('X-Simha-Route-Model') || (model === 'auto' ? undefined : model);
+      const routeScore = r.headers.get('X-Simha-Route-Score') || undefined;
+      const routeElo = r.headers.get('X-Simha-Route-ELO') || undefined;
       const reader = r.body?.getReader();
       if (reader) {
         const dec = new TextDecoder();
         let buf = '';
-        setMessages((m) => [...m, { role: 'assistant', content: '', model: headerModel || model }]);
+        setMessages((m) => [...m, { role: 'assistant', content: '', model: headerModel || model, routing_score: routeScore, routing_elo: routeElo }]);
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -645,6 +647,8 @@ export default function ChatPage() {
                   <div className="message-meta">
                     <b>{m.role === 'user' ? 'You' : 'Simha Assistant'}</b>
                     {m.model && <span className="model-badge" title="Model that answered">{m.model}</span>}
+                    {m.role === 'assistant' && (m.routing_score || m.routing_elo) && (
+                      <span className="model-badge" title="Gateway routing explanation">score {m.routing_score ?? '—'} · elo {m.routing_elo ?? '—'}</span>)}
                     {m.role === 'assistant' && <span className="message-status">routed · {activeProfile.label.toLowerCase()}</span>}
                   </div>
                   <div className="message-text">
