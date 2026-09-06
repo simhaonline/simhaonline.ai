@@ -146,6 +146,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
         <div className="flex-1 overflow-auto px-2 py-2">
           {tab === 'Chats' && (
             <div className="space-y-3">
+              <ProjectsSection />
               {pinned.length > 0 && (
                 <div>
                   <p className="px-1.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600">Pinned</p>
@@ -246,6 +247,59 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
   );
 }
 
+// ── Projects section (Chats tab) ─────────────────────────────────────────────
+
+function ProjectsSection() {
+  const [projects, setProjects] = useState<Array<{ id: number; name: string; conversation_count: number }>>([]);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+
+  const load = useCallback(async () => {
+    try { setProjects((await wbApi.projects.list()).projects || []); } catch { /* optional */ }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function create() {
+    if (!name.trim()) return;
+    await wbApi.projects.create(name.trim());
+    setName('');
+    setAdding(false);
+    await load();
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between px-1 pb-1">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">Projects</p>
+        <button onClick={() => setAdding((v) => !v)} aria-label="New project" className="text-zinc-600 hover:text-violet-400 cursor-pointer">
+          <Plus size={12} />
+        </button>
+      </div>
+      {adding && (
+        <div className="mb-1.5 flex gap-1">
+          <input
+            autoFocus value={name} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void create(); if (e.key === 'Escape') setAdding(false); }}
+            placeholder="Project name…"
+            className="min-w-0 flex-1 rounded-md border border-violet-500 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 focus:outline-none"
+          />
+          <button onClick={() => void create()} className="rounded-md bg-violet-500 px-2 text-xs text-white hover:bg-violet-400 cursor-pointer">Add</button>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-1">
+        {projects.map((p) => (
+          <span key={p.id} className="inline-flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-950 px-2 py-0.5 text-[10.5px] text-zinc-300" title={`${p.conversation_count} conversations`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-violet-400" aria-hidden />
+            {p.name}
+            <small className="text-zinc-600">{p.conversation_count}</small>
+          </span>
+        ))}
+        {!projects.length && !adding && <p className="px-1 text-[11px] text-zinc-600">No projects — group related chats into one.</p>}
+      </div>
+    </div>
+  );
+}
+
 function ConversationRow({
   c, active, renaming, renameText, setRenameText, onRenameSave, onStartRename, onPin, onDelete,
 }: {
@@ -340,9 +394,11 @@ function MenuItem({ icon, label, onClick, danger }: { icon: React.ReactNode; lab
 // ── Library tab ──────────────────────────────────────────────────────────────
 
 import { V1Prompt } from '@/lib/wb-api';
+const PROMPT_CATEGORIES = ['All', 'writing', 'coding', 'business', 'analysis', 'research', 'learning', 'productivity', 'creative', 'translation'] as const;
 function LibraryTab() {
   const [prompts, setPrompts] = useState<V1Prompt[]>([]);
   const [query, setQuery] = useState('');
+  const [cat, setCat] = useState<(typeof PROMPT_CATEGORIES)[number]>('All');
   const setDraft = useChat((s) => s.setDraft);
 
   const load = useCallback(async () => {
@@ -355,7 +411,9 @@ function LibraryTab() {
     await load();
   }
 
-  const visible = prompts.filter((p) => p.title.toLowerCase().includes(query.toLowerCase()));
+  const visible = prompts.filter((p) =>
+    p.title.toLowerCase().includes(query.toLowerCase()) &&
+    (cat === 'All' || (p.category || 'general').toLowerCase() === cat.toLowerCase()));
   return (
     <div className="space-y-2">
       <input
@@ -364,6 +422,21 @@ function LibraryTab() {
         placeholder="Search prompts…"
         className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
       />
+      <div className="flex flex-wrap gap-1">
+        {PROMPT_CATEGORIES.map((c) => (
+          <button
+            key={c}
+            onClick={() => setCat(c)}
+            aria-pressed={cat === c}
+            className={cn(
+              'rounded-full border px-2 py-0.5 text-[10px] capitalize cursor-pointer',
+              cat === c ? 'border-violet-500 bg-violet-500/15 text-violet-300' : 'border-zinc-800 text-zinc-500 hover:text-zinc-200',
+            )}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
       {visible.map((p) => (
         <div key={p.id} className="group relative rounded-md border border-zinc-800 bg-zinc-950 p-2.5 hover:border-zinc-700">
           <button onClick={() => setDraft(p.content)} className="w-full text-left cursor-pointer">
@@ -396,12 +469,23 @@ function Badge({ children }: { children: React.ReactNode }) {
 import { V1Persona } from '@/lib/wb-api';
 function StudioTab() {
   const [personas, setPersonas] = useState<V1Persona[]>([]);
+  const [caps, setCaps] = useState<{
+    skills: Array<{ id: number; name: string; description: string; enabled: boolean }>;
+    agents: Array<{ id: number; name: string; description: string; enabled: boolean }>;
+  }>({ skills: [], agents: [] });
   const [sheetOpen, setSheetOpen] = useState(false);
   const setActivePersona = useChat((s) => s.setActivePersona);
+  const setEnabledPlugins = useChat((s) => s.setEnabledPlugins);
 
   const load = useCallback(async () => {
     try { setPersonas((await wbApi.personas.list()).personas || []); } catch { /* optional */ }
-  }, []);
+    try {
+      const d = await wbApi.capabilities.list();
+      setCaps({ skills: d.skills || [], agents: d.agents || [] });
+      const all = [...(d.skills || []), ...(d.agents || [])].filter((x) => x.enabled).map((x) => x.name);
+      setEnabledPlugins(all);
+    } catch { /* optional */ }
+  }, [setEnabledPlugins]);
   useEffect(() => { void load(); }, [load]);
 
   async function activate(p: V1Persona) {
@@ -411,32 +495,61 @@ function StudioTab() {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <button
         onClick={() => setSheetOpen(true)}
         className="flex w-full items-center gap-2 rounded-md border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-violet-500 cursor-pointer"
       >
         <Plus size={12} /> New persona
       </button>
-      {personas.map((p) => (
-        <div key={p.id} className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2">
-          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: p.color }} aria-hidden />
-          <div className="min-w-0 flex-1">
-            <b className="block truncate text-xs text-zinc-100">{p.name}</b>
-            <small className="text-[10px] text-zinc-600">{p.model} · temp {p.temperature}</small>
+
+      <div>
+        <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600">Personas</p>
+        {personas.map((p) => (
+          <div key={p.id} className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-2">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: p.color }} aria-hidden />
+            <div className="min-w-0 flex-1">
+              <b className="block truncate text-xs text-zinc-100">{p.name}</b>
+              <small className="text-[10px] text-zinc-600">{p.model} · temp {p.temperature}</small>
+            </div>
+            <button
+              onClick={() => void activate(p)}
+              role="switch"
+              aria-checked={Boolean(p.active)}
+              aria-label={`Activate ${p.name}`}
+              className={cn('relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer', p.active ? 'bg-violet-500' : 'bg-zinc-700')}
+            >
+              <span className={cn('inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform', p.active ? 'translate-x-[18px]' : 'translate-x-0.5')} />
+            </button>
           </div>
-          <button
-            onClick={() => void activate(p)}
-            role="switch"
-            aria-checked={Boolean(p.active)}
-            aria-label={`Activate ${p.name}`}
-            className={cn('relative h-4.5 w-8 inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer', p.active ? 'bg-violet-500' : 'bg-zinc-700')}
-          >
-            <span className={cn('inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform', p.active ? 'translate-x-[18px]' : 'translate-x-0.5')} />
-          </button>
-        </div>
-      ))}
-      {!personas.length && <p className="px-1 py-6 text-center text-xs text-zinc-600">No personas yet.</p>}
+        ))}
+        {!personas.length && <p className="px-1 py-3 text-center text-[11px] text-zinc-600">No personas yet.</p>}
+      </div>
+
+      <div>
+        <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600">Skills</p>
+        {caps.skills.map((s) => (
+          <div key={s.id} className="flex items-center gap-2 rounded-md bg-zinc-900/60 px-2.5 py-1.5">
+            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', s.enabled ? 'bg-green-400' : 'bg-zinc-600')} aria-hidden />
+            <b className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-200">{s.name}</b>
+            <span className="shrink-0 text-[9px] uppercase tracking-wide text-zinc-600">skill</span>
+          </div>
+        ))}
+        {!caps.skills.length && <p className="px-1 py-2 text-center text-[11px] text-zinc-600">No skills registered.</p>}
+      </div>
+
+      <div>
+        <p className="px-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600">Agents</p>
+        {caps.agents.map((a) => (
+          <div key={a.id} className="flex items-center gap-2 rounded-md bg-zinc-900/60 px-2.5 py-1.5">
+            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', a.enabled ? 'bg-green-400' : 'bg-zinc-600')} aria-hidden />
+            <b className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-200">{a.name}</b>
+            <span className="shrink-0 text-[9px] uppercase tracking-wide text-zinc-600">agent</span>
+          </div>
+        ))}
+        {!caps.agents.length && <p className="px-1 py-2 text-center text-[11px] text-zinc-600">No agents registered.</p>}
+      </div>
+
       <PersonaSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSaved={async () => { setSheetOpen(false); await load(); }} />
     </div>
   );
@@ -497,8 +610,10 @@ function PersonaSheet({ open, onClose, onSaved }: { open: boolean; onClose: () =
 
 function IntegrationsTab() {
   const [plugins, setPlugins] = useState<Array<{ id: number; name: string; description: string; category: string; enabled: boolean; icon?: string }>>([]);
+  const [mcp, setMcp] = useState<Array<{ name: string; url: string; source: string }>>([]);
   const load = useCallback(async () => {
     try { setPlugins((await wbApi.plugins.list()).plugins || []); } catch { /* optional */ }
+    try { setMcp((await wbApi.capabilities.list()).mcp || []); } catch { /* optional */ }
   }, []);
   useEffect(() => { void load(); }, [load]);
   const setEnabledPlugins = useChat((s) => s.setEnabledPlugins);
@@ -511,32 +626,50 @@ function IntegrationsTab() {
   }
 
   return (
-    <div className="space-y-2">
-      {plugins.map((p) => (
-        <div key={p.id} className="rounded-md border border-zinc-800 bg-zinc-950 p-2.5">
-          <div className="flex items-center gap-2">
-            <span className="text-base" aria-hidden>{p.icon || '⬡'}</span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <b className="truncate text-xs text-zinc-100">{p.name}</b>
-                {p.enabled && <span className="h-1.5 w-1.5 rounded-full bg-green-400" aria-label="enabled" />}
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <p className="px-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600">Plugins</p>
+        {plugins.map((p) => (
+          <div key={p.id} className="rounded-md border border-zinc-800 bg-zinc-950 p-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-base" aria-hidden>{p.icon || '⬡'}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <b className="truncate text-xs text-zinc-100">{p.name}</b>
+                  {p.enabled && <span className="h-1.5 w-1.5 rounded-full bg-green-400" aria-label="enabled" />}
+                </div>
+                <p className="truncate text-[10px] text-zinc-600">{p.description}</p>
               </div>
-              <p className="truncate text-[10px] text-zinc-600">{p.description}</p>
+              <Badge>{p.category}</Badge>
+              <button
+                onClick={() => void toggle(p.id, !p.enabled)}
+                role="switch"
+                aria-checked={p.enabled}
+                aria-label={`Toggle ${p.name}`}
+                className={cn('relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer', p.enabled ? 'bg-violet-500' : 'bg-zinc-700')}
+              >
+                <span className={cn('inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform', p.enabled ? 'translate-x-[18px]' : 'translate-x-0.5')} />
+              </button>
             </div>
-            <Badge>{p.category}</Badge>
-            <button
-              onClick={() => void toggle(p.id, !p.enabled)}
-              role="switch"
-              aria-checked={p.enabled}
-              aria-label={`Toggle ${p.name}`}
-              className={cn('relative inline-flex h-4.5 w-8 h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer', p.enabled ? 'bg-violet-500' : 'bg-zinc-700')}
-            >
-              <span className={cn('inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform', p.enabled ? 'translate-x-[18px]' : 'translate-x-0.5')} />
-            </button>
           </div>
-        </div>
-      ))}
-      {!plugins.length && <p className="px-1 py-6 text-center text-xs text-zinc-600">No plugins in the catalog yet.</p>}
+        ))}
+        {!plugins.length && <p className="px-1 py-4 text-center text-[11px] text-zinc-600">No plugins in the catalog yet.</p>}
+      </div>
+
+      <div className="space-y-2">
+        <p className="px-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600">MCP servers</p>
+        {mcp.map((s) => (
+          <div key={s.name + s.url} className="flex items-center gap-2 rounded-md bg-zinc-900/60 px-2.5 py-1.5">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <b className="block truncate text-[11.5px] text-zinc-200">{s.name}</b>
+              <small className="block truncate text-[10px] text-zinc-600">{s.url || s.source}</small>
+            </div>
+            <span className="shrink-0 text-[9px] uppercase tracking-wide text-zinc-600">mcp</span>
+          </div>
+        ))}
+        {!mcp.length && <p className="px-1 py-3 text-center text-[11px] text-zinc-600">No MCP servers discovered yet — the discovery engine populates this from public registries.</p>}
+      </div>
     </div>
   );
 }

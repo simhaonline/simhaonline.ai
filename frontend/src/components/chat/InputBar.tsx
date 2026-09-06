@@ -17,7 +17,22 @@ export interface SendPayload {
   fileIds: string[];
   /** media generation mode: null = normal chat */
   mediaMode?: 'image' | 'video' | 'audio' | null;
+  /** work mode routed to the gateway task header */
+  taskMode?: 'translate' | 'research' | 'code' | 'vision' | null;
 }
+
+const MEDIA_META = {
+  image: { icon: '🖼', label: 'Image', hint: 'Flux, GPT-Image, Imagen' },
+  video: { icon: '🎬', label: 'Video', hint: 'Veo, Sora, Kling' },
+  audio: { icon: '🎵', label: 'Audio', hint: 'TTS, ElevenLabs' },
+} as const;
+
+const TASK_META = {
+  translate: { icon: '🌐', label: 'Translate', hint: 'Nuanced multi-language' },
+  research: { icon: '🔬', label: 'Deep Research', hint: 'Multi-source synthesis' },
+  code: { icon: '⌨', label: 'Code', hint: 'Routed to code models' },
+  vision: { icon: '👁', label: 'Vision', hint: 'Image understanding' },
+} as const;
 
 export function InputBar({
   onSend, onStop, streaming, disabled,
@@ -33,6 +48,8 @@ export function InputBar({
   const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [mediaMode, setMediaMode] = useState<'image' | 'video' | 'audio' | null>(null);
+  const [taskMode, setTaskMode] = useState<'translate' | 'research' | 'code' | 'vision' | null>(null);
+  const [modesOpen, setModesOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
 
@@ -51,9 +68,10 @@ export function InputBar({
   function submit() {
     const text = draft.trim();
     if (!text || streaming || disabled) return;
-    onSend({ text, fileIds: useChat.getState().attachedFiles.map((f) => f.fileId), mediaMode });
+    onSend({ text, fileIds: useChat.getState().attachedFiles.map((f) => f.fileId), mediaMode, taskMode });
     setDraft('');
     setMediaMode(null);
+    setTaskMode(null);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -146,6 +164,10 @@ export function InputBar({
             placeholder={mediaMode === 'image' ? 'Describe the image to generate…'
               : mediaMode === 'video' ? 'Describe the video to generate…'
               : mediaMode === 'audio' ? 'Describe the audio to generate…'
+              : taskMode === 'translate' ? 'Paste text + target language…'
+              : taskMode === 'research' ? 'What should I research in depth?'
+              : taskMode === 'code' ? 'Describe what to build, paste code, or share an error…'
+              : taskMode === 'vision' ? 'Attach an image, then ask about it…'
               : 'Ask anything…'}
             aria-label="Message"
             className="max-h-[200px] min-h-[52px] w-full resize-none bg-transparent px-5 pt-4 text-[15px] leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
@@ -177,30 +199,46 @@ export function InputBar({
               >
                 <Mic size={16} />
               </button>
-              <button
-                onClick={() => setNotice('Attach workspace context from the Library tab.')}
-                title="Context" aria-label="Context" className={toolBtn}
-              >
-                <span className="text-[15px] leading-none" aria-hidden>◎</span>
-              </button>
-              {/* media generation modes */}
-              <span className="mx-1 h-5 w-px bg-zinc-700" aria-hidden />
-              {(['image', 'video', 'audio'] as const).map((m) => (
+              {/* full mode menu — all workbench features */}
+              <span className="relative">
                 <button
-                  key={m}
-                  onClick={() => setMediaMode((cur) => (cur === m ? null : m))}
-                  aria-pressed={mediaMode === m}
-                  title={`Generate ${m} — type a description and send`}
+                  onClick={() => setModesOpen((v) => !v)}
+                  aria-expanded={modesOpen}
+                  aria-haspopup="menu"
+                  title="Modes — image, video, audio, translate, research, code"
                   className={cn(
-                    'rounded-full border px-2.5 py-1 text-[11px] capitalize cursor-pointer',
-                    mediaMode === m
-                      ? 'border-violet-500 bg-violet-500/15 text-violet-300'
-                      : 'border-zinc-700 text-zinc-400 hover:text-zinc-200',
+                    'flex items-center gap-1 rounded-lg px-2 py-1.5 text-[12px] cursor-pointer',
+                    mediaMode || taskMode ? 'bg-violet-500/15 text-violet-300' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100',
                   )}
                 >
-                  {m === 'image' ? '🖼' : m === 'video' ? '🎬' : '🎵'} {m}
+                  {mediaMode ? MEDIA_META[mediaMode].icon + ' ' + MEDIA_META[mediaMode].label
+                    : taskMode ? TASK_META[taskMode].icon + ' ' + TASK_META[taskMode].label
+                    : '＋ Mode'}
                 </button>
-              ))}
+                {modesOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setModesOpen(false)} />
+                    <div className="absolute bottom-full left-0 z-40 mb-2 w-64 rounded-xl border border-zinc-700 bg-zinc-900 p-1.5 shadow-2xl" role="menu">
+                      <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-600">Generate</p>
+                      {(Object.keys(MEDIA_META) as Array<keyof typeof MEDIA_META>).map((m) => (
+                        <MenuRow
+                          key={m} icon={MEDIA_META[m].icon} label={MEDIA_META[m].label}
+                          hint={MEDIA_META[m].hint} active={mediaMode === m}
+                          onClick={() => { setMediaMode((cur) => (cur === m ? null : m)); setTaskMode(null); setModesOpen(false); }}
+                        />
+                      ))}
+                      <p className="px-2.5 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-zinc-600">Work modes</p>
+                      {(Object.keys(TASK_META) as Array<keyof typeof TASK_META>).map((m) => (
+                        <MenuRow
+                          key={m} icon={TASK_META[m].icon} label={TASK_META[m].label}
+                          hint={TASK_META[m].hint} active={taskMode === m}
+                          onClick={() => { setTaskMode((cur) => (cur === m ? null : m)); setMediaMode(null); setModesOpen(false); }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </span>
               {activePersona && (
                 <span className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 py-1 pl-1.5 pr-2.5 text-[11px] text-violet-300">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: activePersona.color }} aria-hidden />
@@ -255,6 +293,29 @@ export function InputBar({
 
 function PuzzleGlyph() {
   return <span className="text-[15px] leading-none" aria-hidden>⌘</span>;
+}
+
+function MenuRow({ icon, label, hint, active, onClick }: {
+  icon: string; label: string; hint: string; active: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      role="menuitem"
+      aria-checked={active}
+      className={cn(
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12.5px] cursor-pointer',
+        active ? 'bg-violet-500/15 text-violet-300' : 'text-zinc-200 hover:bg-zinc-800',
+      )}
+    >
+      <span className="w-5 text-center text-[14px]" aria-hidden>{icon}</span>
+      <span className="min-w-0">
+        <b className="block font-medium">{label}</b>
+        <small className="block text-[10.5px] text-zinc-500">{hint}</small>
+      </span>
+      {active && <span className="ml-auto text-violet-400" aria-hidden>✓</span>}
+    </button>
+  );
 }
 
 interface SpeechRecognitionLike {

@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import { Pool } from 'pg';
 import crypto from 'crypto';
 import { PG_POOL } from '../db/db.module';
+import { pickModelForMode, MODES, type WorkbenchMode } from './workbench-modes';
 
 @Controller('chat/api/v1/chat')
 export class WorkbenchStreamController {
@@ -43,6 +44,7 @@ export class WorkbenchStreamController {
    messages?: Array<{ role: string; content: string }>;
    stream?: boolean;
    output_modality?: string;
+   mode?: string;
  },
   ) {
     const cookie = req.headers.cookie || '';
@@ -79,19 +81,38 @@ export class WorkbenchStreamController {
     let content = '';
     let completionTokens = 0;
 
-    // media generation: pass the modality through so the gateway's fal adapter
-    // routes to a media provider; fal is synchronous → no SSE stream.
+    // mode router: media modes pick a capability model; task modes (translate/
+    // code/vision) set the gateway task header so routing respects capability.
+    const mode = (String(body.mode || '').toLowerCase() || 'chat') as WorkbenchMode;
+    const spec = MODES[mode] || MODES.chat;
     const mediaMode = String(body.output_modality || '').toLowerCase();
-    const isMedia = mediaMode === 'image' || mediaMode === 'video' || mediaMode === 'audio';
+    const effectiveMode = (['image', 'video', 'audio'].includes(mediaMode)
+      ? mediaMode : mode) as WorkbenchMode;
+    const isMedia = ['image', 'video', 'audio'].includes(effectiveMode);
+
+    let model = String(body.model || 'auto');
+    // media modes: pin a capability model (fal flux/veo, openai image/sora).
+    // task modes: leave 'auto' — the gateway's SelectModel respects the task
+    // header (X-Simha-Task) and picks the best ELO-scored capable model.
+    if (model === 'auto' && isMedia) {
+      const picked = await pickModelForMode(this.pool, effectiveMode);
+      if (picked) model = picked.model;
+    }
+    if (model === 'auto') model = '';
 
     const upstream = await fetch(gateway, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gatewayKey}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${gatewayKey}`,
+        'X-Simha-Task': spec.taskSlug,
+        ...(spec.outputModality ? { 'X-Simha-Output-Modality': spec.outputModality } : {}),
+      },
       body: JSON.stringify({
-        model: body.model || 'auto',
+        model,
         messages,
         stream: !isMedia,
-        ...(isMedia ? { output_modality: mediaMode } : {}),
+        ...(isMedia ? { output_modality: effectiveMode } : {}),
       }),
     });
     if (!upstream.ok || !upstream.body) {

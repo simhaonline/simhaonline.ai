@@ -141,6 +141,23 @@ export const wbApi = {
     test: (id: number) =>
       request<{ ok: boolean; name: string; reachable: boolean; latency_ms: number }>(`/chat/api/v1/plugins/${id}/test`, { method: 'POST' }),
   },
+  capabilities: {
+    list: () => request<{
+      skills: Array<{ id: number; kind: string; slug: string; name: string; description: string; enabled: boolean }>;
+      agents: Array<{ id: number; kind: string; slug: string; name: string; description: string; enabled: boolean }>;
+      plugins: Array<{ id: number; kind: string; slug: string; name: string; description: string; enabled: boolean }>;
+      mcp: Array<{ name: string; url: string; source: string }>;
+    }>('/chat/api/v1/capabilities'),
+  },
+  projects: {
+    list: () => request<{ projects: Array<{ id: number; name: string; description: string | null; conversation_count: number }> }>('/chat/api/v1/projects'),
+    create: (name: string, description?: string) =>
+      request<{ id: number; name: string }>('/chat/api/v1/projects', { method: 'POST', body: JSON.stringify({ name, description }) }),
+    remove: (id: number) =>
+      request<{ ok: boolean }>(`/chat/api/v1/projects/${id}`, { method: 'DELETE' }),
+    attach: (projectId: number, chatId: number) =>
+      request<{ ok: boolean }>(`/chat/api/v1/projects/${projectId}/conversations/${chatId}`, { method: 'POST' }),
+  },
   models: {
     list: () => request<{ models: string[] }>('/chat/models'),
   },

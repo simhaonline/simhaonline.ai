@@ -20,6 +20,8 @@ export interface StreamOptions {
   /** Media generation mode — tags the request so the gateway routes to a
    *  media provider (fal/veo/sora) instead of a text model. */
   mediaMode?: 'image' | 'video' | 'audio' | null;
+  /** Work mode — sets the gateway task header (translate/code/vision…). */
+  taskMode?: 'translate' | 'research' | 'code' | 'vision' | null;
 }
 
 export async function streamChat(
@@ -43,6 +45,7 @@ export async function streamChat(
       tools: plugins,
       file_ids: fileIds,
       ...(opts.mediaMode ? { output_modality: opts.mediaMode, stream: false } : {}),
+      ...(opts.taskMode ? { mode: opts.taskMode } : {}),
       ...(opts.body || {}),
     }),
   });
