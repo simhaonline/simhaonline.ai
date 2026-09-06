@@ -13,10 +13,19 @@ function controlPath(path: string[]): string[] {
   if (path[0] === 'chat' && path[1] === 'api' && path[2] === 'v1') {
     return ['chat', 'api', 'v1', ...path.slice(3)];
   }
+  // error.log fix: /api/chat/api/models → CP /chat/api/models (the old
+  // wb-api double-prefix path; keep accepting it so stale bundles heal).
+  if (path[0] === 'chat' && path[1] === 'api' && path[2] === 'models') {
+    return ['chat', 'api', 'models'];
+  }
   if (path[0] === 'chat') return ['chat', 'api', ...path.slice(1)];
   // audit v2 🔴: billing endpoints previously reached CP as /api/billing/…
   // (leading to 404s); the controller lives at /billing/*.
   if (path[0] === 'billing') return ['billing', ...path.slice(1)];
+  // error.log fix: /api/v1/billing/* must also reach the /billing controller.
+  if (path[0] === 'v1' && path[1] === 'billing') return ['billing', ...path.slice(2)];
+  // error.log fix: /api/v1/chat/* reaches the chat controllers directly.
+  if (path[0] === 'v1' && path[1] === 'chat') return ['chat', ...path.slice(2)];
   // Control Center v2 scaffold: /api/v1/* maps to the CP api/v1 controllers.
   if (path[0] === 'v1') return ['api', 'v1', ...path.slice(1)];
   return path;

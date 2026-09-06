@@ -142,7 +142,7 @@ export const wbApi = {
       request<{ ok: boolean; name: string; reachable: boolean; latency_ms: number }>(`/chat/api/v1/plugins/${id}/test`, { method: 'POST' }),
   },
   models: {
-    list: () => request<{ models: string[] }>('/chat/api/models'),
+    list: () => request<{ models: string[] }>('/chat/models'),
   },
   files: {
     upload: async (file: File): Promise<{ fileId: string; name: string; previewUrl?: string }> => {
