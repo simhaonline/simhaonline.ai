@@ -28,6 +28,8 @@ export interface AttachedFile {
   fileId: string;
   name: string;
   previewUrl?: string;
+  isImage?: boolean;
+  mimeType?: string;
 }
 
 export interface CompareMode {

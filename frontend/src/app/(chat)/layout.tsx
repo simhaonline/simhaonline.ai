@@ -456,6 +456,66 @@ function LibraryTab() {
         </div>
       ))}
       {!visible.length && <p className="px-1 py-6 text-center text-xs text-zinc-600">No saved prompts yet.</p>}
+      <MemorySection />
+    </div>
+  );
+}
+
+// ── Memory (semantic_memory — save facts, vector-search recall) ─────────────
+
+function MemorySection() {
+  const [memories, setMemories] = useState<Array<{ id: number; content: string }>>([]);
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState('');
+
+  const load = useCallback(async () => {
+    try { setMemories((await wbApi.memory.list()).memories || []); } catch { /* optional */ }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function save() {
+    if (!text.trim()) return;
+    await wbApi.memory.save(text.trim());
+    setText('');
+    setAdding(false);
+    await load();
+  }
+
+  return (
+    <div className="pt-3">
+      <div className="flex items-center justify-between px-1 pb-1">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">Memory</p>
+        <button onClick={() => setAdding((v) => !v)} aria-label="Remember something" className="text-zinc-600 hover:text-violet-400 cursor-pointer">
+          <Plus size={12} />
+        </button>
+      </div>
+      {adding && (
+        <div className="mb-1.5 grid gap-1">
+          <textarea
+            autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={2}
+            placeholder="A fact to remember across conversations…"
+            className="w-full rounded-md border border-violet-500 bg-zinc-950 p-2 text-xs text-zinc-100 focus:outline-none"
+          />
+          <div className="flex justify-end gap-1">
+            <button onClick={() => setAdding(false)} className="rounded-md border border-zinc-700 px-2 py-1 text-[10px] text-zinc-400 cursor-pointer">Cancel</button>
+            <button onClick={() => void save()} className="rounded-md bg-violet-500 px-2.5 py-1 text-[10px] text-white hover:bg-violet-400 cursor-pointer">Remember</button>
+          </div>
+        </div>
+      )}
+      {memories.map((m) => (
+        <div key={m.id} className="group flex items-start gap-2 rounded-md bg-zinc-900/60 px-2.5 py-1.5">
+          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" aria-hidden />
+          <p className="min-w-0 flex-1 text-[11px] leading-4 text-zinc-300">{m.content}</p>
+          <button
+            onClick={async () => { await wbApi.memory.remove(m.id); await load(); }}
+            aria-label="Forget"
+            className="hidden shrink-0 text-zinc-600 hover:text-red-400 group-hover:block cursor-pointer"
+          >
+            <Trash2 size={10} />
+          </button>
+        </div>
+      ))}
+      {!memories.length && !adding && <p className="px-1 text-[11px] text-zinc-600">Nothing remembered yet — save facts the assistant should always know.</p>}
     </div>
   );
 }

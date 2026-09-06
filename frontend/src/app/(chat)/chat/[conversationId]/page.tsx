@@ -66,7 +66,7 @@ export default function ConversationPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages[conversationId]?.length, messages[conversationId]?.[messages[conversationId]?.length - 1]?.content]);
 
-  const runStream = useCallback(async (history: ChatMessage[], mediaMode?: 'image' | 'video' | 'audio' | null, taskMode?: 'translate' | 'research' | 'code' | 'vision' | null) => {
+  const runStream = useCallback(async (history: ChatMessage[], mediaMode?: 'image' | 'video' | 'audio' | null, taskMode?: 'translate' | 'research' | 'code' | 'vision' | null, suffix?: string) => {
     const controller = new AbortController();
     abortRef.current = controller;
     setStreamError('');
@@ -84,17 +84,18 @@ export default function ConversationPage() {
           signal: controller.signal,
           mediaMode: mediaMode || null,
           taskMode: taskMode || null,
-          onChunk: (chunk) => { content += chunk; updateStreamingMessage(conversationId, content); },
+          onChunk: (chunk) => { content += chunk; updateStreamingMessage(conversationId, suffix ? content + suffix : content); },
           onDone: async (usage) => {
             const latency = Date.now() - started;
             finalizeStreamingMessage(conversationId, {
               tokens: usage?.completion_tokens, latency_ms: latency, model: selectedModel,
             });
             setTokens((t) => t + (usage?.total_tokens || 0));
-            // persist the assistant message
+            // persist the assistant message (+ research source footer)
+            const finalContent = content + (suffix || '');
             try {
               await wbApi.messages.save(conversationId, {
-                role: 'assistant', content, model: selectedModel, tokens: usage?.completion_tokens,
+                role: 'assistant', content: finalContent, model: selectedModel, tokens: usage?.completion_tokens,
               });
             } catch { /* offline persistence retry later */ }
           },
@@ -116,6 +117,30 @@ export default function ConversationPage() {
     appendMessage(conversationId, userMsg);
     const history = [...(messages[conversationId] || []), userMsg];
     try { await wbApi.messages.save(conversationId, { role: 'user', content: text }); } catch { /* retry later */ }
+
+    // Deep Research: run the source pipeline first, then synthesize with a
+    // context block containing the retrieved sources (cited synthesis).
+    if (taskMode === 'research') {
+      updateStreamingMessage(conversationId, '🔎 Searching the web and reading sources…');
+      try {
+        const d = await wbApi.research.run(text, 2);
+        if (d.sources.length) {
+          const context = d.sources
+            .map((s, i) => `[${i + 1}] ${s.title} — ${s.url}\n${s.snippet}`)
+            .join('\n\n');
+          const synth = `Using ONLY the sources below, answer the question. Cite sources as [n]. If the sources do not cover something, say so.\n\nQuestion: ${text}\n\nSources:\n${context}`;
+          await wbApi.messages.save(conversationId, { role: 'system', content: `research-context: ${d.sources.length} sources` });
+          const sourcesFooter = `\n\n---\n**Sources**\n${d.sources.map((s, i) => `${i + 1}. [${s.title}](${s.url})`).join('\n')}`;
+          const history2 = [...history, { id: `s-${Date.now()}`, role: 'user' as const, content: synth }];
+          await runStream(history2, null, null, sourcesFooter);
+          return;
+        }
+        updateStreamingMessage(conversationId, `⚠ ${d.note || 'No sources found — falling back to model knowledge.'}`);
+      } catch {
+        updateStreamingMessage(conversationId, '⚠ Source search failed — falling back to model knowledge.');
+      }
+      await new Promise((r) => setTimeout(r, 900));
+    }
     await runStream(history, mediaMode, taskMode);
   }
 
@@ -144,6 +169,8 @@ export default function ConversationPage() {
     if (typeof message.id === 'number') {
       try { await wbApi.messages.rate(message.id, rating); } catch { /* best effort */ }
     }
+    // durable feedback record (cross-check gap: feedback table had no endpoint)
+    try { await wbApi.feedback.send(rating, `${rating}: ${message.content.slice(0, 200)}`); } catch { /* best effort */ }
     setMessages(conversationId, (messages[conversationId] || []).map((m) =>
       m.id === message.id ? { ...m, rating: m.rating === rating ? null : rating } : m));
   }

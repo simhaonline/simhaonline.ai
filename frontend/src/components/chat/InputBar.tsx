@@ -50,6 +50,7 @@ export function InputBar({
   const [mediaMode, setMediaMode] = useState<'image' | 'video' | 'audio' | null>(null);
   const [taskMode, setTaskMode] = useState<'translate' | 'research' | 'code' | 'vision' | null>(null);
   const [modesOpen, setModesOpen] = useState(false);
+  const [visionArmed, setVisionArmed] = useState(false);
   const [notice, setNotice] = useState('');
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
 
@@ -68,10 +69,18 @@ export function InputBar({
   function submit() {
     const text = draft.trim();
     if (!text || streaming || disabled) return;
-    onSend({ text, fileIds: useChat.getState().attachedFiles.map((f) => f.fileId), mediaMode, taskMode });
+    const files = useChat.getState().attachedFiles;
+    const hasImage = files.some((f) => f.isImage);
+    onSend({
+      text,
+      fileIds: files.map((f) => f.fileId),
+      mediaMode,
+      taskMode: hasImage && !taskMode ? 'vision' : taskMode,
+    });
     setDraft('');
     setMediaMode(null);
     setTaskMode(null);
+    setVisionArmed(false);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -89,6 +98,14 @@ export function InputBar({
     setNotice('');
     for (const file of Array.from(files).slice(0, 10)) {
       try {
+        // images: local preview + multimodal flag (vision mode)
+        if (file.type.startsWith('image/')) {
+          const previewUrl = URL.createObjectURL(file);
+          const d = await wbApi.files.upload(file);
+          addAttachedFile({ fileId: d.fileId, name: d.name, previewUrl, isImage: true, mimeType: file.type });
+          setVisionArmed(true);
+          continue;
+        }
         const d = await wbApi.files.upload(file);
         addAttachedFile({ fileId: d.fileId, name: d.name, previewUrl: d.previewUrl });
       } catch (err) {
@@ -134,12 +151,16 @@ export function InputBar({
   return (
     <div className="sticky bottom-0 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent pb-3 pt-2">
       <div className="mx-auto w-full max-w-3xl px-4">
-        {/* attachment previews */}
+        {/* attachment previews — images render as thumbnails */}
         {attachedFiles.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {attachedFiles.map((f) => (
-              <span key={f.fileId} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11px] text-zinc-300">
-                <Paperclip size={10} className="text-violet-400" />
+              <span key={f.fileId} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[11px] text-zinc-300">
+                {f.isImage && f.previewUrl ? (
+                  <img src={f.previewUrl} alt={f.name} className="h-8 w-8 rounded border border-zinc-700 object-cover" />
+                ) : (
+                  <Paperclip size={10} className="text-violet-400" />
+                )}
                 {f.name}
                 <button
                   onClick={() => useChat.getState().removeAttachedFile(f.fileId)}

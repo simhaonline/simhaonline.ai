@@ -127,6 +127,31 @@ export const wbApi = {
     remove: (id: number) =>
       request<{ ok: boolean }>(`/chat/api/v1/prompts/${id}`, { method: 'DELETE' }),
   },
+  memory: {
+    list: () => request<{ memories: Array<{ id: number; content: string; created_at: string }> }>('/chat/api/v1/memory'),
+    save: (content: string) =>
+      request<{ id: number }>('/chat/api/v1/memory', { method: 'POST', body: JSON.stringify({ content }) }),
+    remove: (id: number) =>
+      request<{ ok: boolean }>(`/chat/api/v1/memory/${id}`, { method: 'DELETE' }),
+    search: (q: string) =>
+      request<{ results: Array<{ id: number; content: string; similarity: number }> }>(`/chat/api/v1/memory/search?q=${encodeURIComponent(q)}`),
+  },
+  research: {
+    run: (query: string, depth?: number) =>
+      request<{ query: string; sources: Array<{ title: string; url: string; snippet: string }>; errors?: string[]; note?: string }>(
+        '/chat/api/v1/research', { method: 'POST', body: JSON.stringify({ query, depth }) }),
+  },
+  feedback: {
+    send: (rating: string, comment?: string) =>
+      request<{ id: number }>('/chat/api/v1/feedback', { method: 'POST', body: JSON.stringify({ rating, comment }) }),
+  },
+  scheduled: {
+    list: () => request<{ tasks: Array<{ id: number; title: string; prompt: string; status: string; run_at: string | null }> }>('/chat/api/v1/scheduled'),
+    create: (title: string, prompt: string, schedule: string) =>
+      request<{ id: number; title: string; status: string }>('/chat/api/v1/scheduled', { method: 'POST', body: JSON.stringify({ title, prompt, schedule }) }),
+    remove: (id: number) =>
+      request<{ ok: boolean }>(`/chat/api/v1/scheduled/${id}`, { method: 'DELETE' }),
+  },
   personas: {
     list: () => request<{ personas: V1Persona[] }>('/chat/api/v1/personas'),
     create: (persona: Omit<V1Persona, 'id' | 'active'>) =>
