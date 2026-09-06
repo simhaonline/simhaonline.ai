@@ -18,8 +18,18 @@ stack (gateway / control-plane / worker / web):
 | reverse | 8112 | gitreverse | Python/FastAPI | stateless |
 | router-opt | 8113 | OmniRoute methodology | Go (stdlib only) | stateless, advisory-only |
 | rank | 8114 | arena-rank | Python/FastAPI + SQLite | battle history in `/data/arena.db` |
+| discovery | 8115 | ecosystem-crawler concepts | Python/FastAPI + SQLite | entity store + cycles on `/data/discovery.db` |
+| judge | 8116 | LLM-as-a-judge lit. | Python/FastAPI | stateless; optional LLM adapter envs |
 
-Shared volume: `enginesdata` (only scraper's monitors + rank's SQLite live on it).
+Shared volume: `enginesdata` (monitor state + arena + discovery DB live on it).
+
+## Platform contract (all engines)
+
+Every engine exposes:
+
+- `GET /healthz`, `GET /health/live`, `GET /health/ready` (dependency checks), `GET /metrics` (Prometheus text: uptime, request/error counters per route)
+- Feature flag `<ENGINE>_ENABLED` (`SCRAPER_ENABLED`, `REVERSE_ENABLED`, `ROUTER_OPT_ENABLED`, `RANK_ENABLED`, `DISCOVERY_ENABLED`, `JUDGE_ENABLED`) — when set to `false`, non-contract endpoints return 503; contract endpoints stay open (watchdogs keep working).
+- Optional `ENGINE_API_TOKEN` env: when set, non-contract requests must carry `X-Engine-Token: <token>`.
 
 ## Operations
 
@@ -93,7 +103,42 @@ Methodology: K decays with games played (`K0/(1+games/25)`, floor K0/10) and is
 boosted while RD is high, so new models converge in ~10–20 battles; RD shrinks
 toward a floor as evidence accumulates (CI on the leaderboard comes from RD).
 
-## Isolation guarantees
+## 5. discovery — AI ecosystem discovery (port 8115)
+
+Continuously discovers, normalizes, deduplicates and tracks the AI ecosystem
+(models, agents, frameworks, MCP servers, vector DBs, …) with provenance and a
+trust pipeline: `discovered → parsed → normalized → deduplicated → verified →
+approved → active`. Scraped text is injection-scrubbed; only OFFICIAL/VERIFIED
+sources can advance entities to `active`.
+
+| Endpoint | Body | Purpose |
+|---|---|---|
+| `POST /sources` | `{name, url, kind?, trust_level?}` | register a source (community/official/verified) |
+| `POST /cycle` | `{limit_sources?}` | fetch all due sources, extract+normalize+upsert entities |
+| `GET /sources`, `/jobs` | | source health / cycle history (queued→completed) |
+| `GET /entities?kind=&q=&state=` | | browse discovered entities |
+| `GET /entities/{id}` | | full record + provenance + pending changes |
+| `GET /changes?status=pending` | | Pending Updates queue (§97) |
+| `POST /changes/{id}/approve\|reject\|ignore` | | review a detected change |
+| `POST /entities/{id}/approve\|reject` | | human state transition (trust-gated) |
+
+Seeded in production: official MCP server registry (README list) + GitHub topic
+pages. Unit tests: `modules/discovery/test_engine.py` (18 checks).
+
+## 6. judge — LLM-as-a-judge (port 8116)
+
+Independent evaluation service for the routing feedback loop (prompt.md §22-25).
+
+| Endpoint | Body | Purpose |
+|---|---|---|
+| `POST /judge/single` | `{prompt, response, criteria?, rubric_hint?}` | rubric scoring 0-10 per criterion + overall + rationale |
+| `POST /judge/pairwise` | `{prompt, response_a, response_b, criteria?, reverse_order?, randomize?}` | A/B verdict with reverse-order rejudge; reports `position_bias_detected` when passes disagree |
+| `POST /judge/multi` | `{prompt, response, judges?, quorum?, criteria?}` | multi-judge consensus (mean, spread, quorum gate) |
+
+Backend: set `JUDGE_BASE_URL` + `JUDGE_MODEL` (+ optional `JUDGE_API_KEY`) to any
+OpenAI-compatible endpoint for real LLM judging; without them a deterministic
+heuristic judge runs (flagged in responses as `backend: "heuristic"`). Unit
+tests: `modules/judge/test_engine.py`.
 
 - compose profile gate + `127.0.0.1`-only ports (verified: `docker compose config --services`
   unchanged for core with/without the profile)

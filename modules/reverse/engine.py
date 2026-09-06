@@ -36,9 +36,11 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from engine_contract import install_contract
 
 LOG = logging.getLogger("simha.reverse")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -49,6 +51,7 @@ MAX_FILES = int(os.environ.get("REVERSE_MAX_FILES", "3000"))
 MAX_FILE_BYTES = 400_000
 
 app = FastAPI(title="simha-reverse", version="1.0.0")
+install_contract(app, engine="reverse", flag_env="REVERSE_ENABLED")
 
 # ── language & manifest tables ───────────────────────────────────────────────
 LANG_BY_EXT = {

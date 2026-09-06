@@ -22,8 +22,20 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+// statusRecorder captures the response status for /metrics error counts.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
 
 // ProviderEntry describes one upstream account entry (input shape).
 type ProviderEntry struct {
@@ -307,12 +319,84 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("simha-router-opt ")
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"status": "ok", "service": "simha-router-opt"})
-	})
+	flagEnabled := func() bool {
+		switch strings.ToLower(strings.TrimSpace(os.Getenv("ROUTER_OPT_ENABLED"))) {
+		case "0", "false", "no", "off":
+			return false
+		}
+		return true
+	}
+	start := time.Now()
+	var reqCounts, errCounts struct {
+		mu sync.Mutex
+		m  map[string]int64
+	}
+	reqCounts.m = map[string]int64{}
+	errCounts.m = map[string]int64{}
 
-	mux.HandleFunc("/terms/parse", func(w http.ResponseWriter, r *http.Request) {
+	// contractGuard enforces the optional ENGINE_API_TOKEN + feature flag
+	// (prompt.md §69) and counts requests for /metrics. Contract paths pass.
+	guard := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			path := r.URL.Path
+			isContract := path == "/healthz" || path == "/health/live" ||
+				path == "/health/ready" || path == "/metrics"
+			if !isContract {
+				if token := strings.TrimSpace(os.Getenv("ENGINE_API_TOKEN")); token != "" {
+					if r.Header.Get("X-Engine-Token") != token {
+						writeJSON(w, 401, map[string]string{"error": "engine token required"})
+						return
+					}
+				}
+				if !flagEnabled() {
+					writeJSON(w, 503, map[string]any{"error": "engine disabled by feature flag", "flag": "ROUTER_OPT_ENABLED"})
+					return
+				}
+			}
+			rec := &statusRecorder{ResponseWriter: w, status: 200}
+			next(rec, r)
+			reqCounts.mu.Lock()
+			reqCounts.m[r.Method+" "+path]++
+			if rec.status >= 500 {
+				errCounts.mu.Lock()
+				errCounts.m[r.Method+" "+path]++
+				errCounts.mu.Unlock()
+			}
+			reqCounts.mu.Unlock()
+		}
+	}
+
+	writeReady := func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"status": "ready", "service": "simha-router-opt"})
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", guard(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"status": "ok", "service": "simha-router-opt"})
+	}))
+	mux.HandleFunc("/health/live", guard(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"status": "live", "service": "simha-router-opt"})
+	}))
+	mux.HandleFunc("/health/ready", guard(writeReady))
+	mux.HandleFunc("/metrics", guard(func(w http.ResponseWriter, r *http.Request) {
+		up := time.Since(start).Seconds()
+		reqCounts.mu.Lock()
+		defer reqCounts.mu.Unlock()
+		fmt.Fprintf(w, "# TYPE simha_engine_uptime_seconds gauge\n")
+		fmt.Fprintf(w, "simha_engine_uptime_seconds{engine=\"router-opt\"} %.1f\n", up)
+		fmt.Fprintf(w, "# TYPE simha_engine_requests_total counter\n")
+		for k, v := range reqCounts.m {
+			fmt.Fprintf(w, "simha_engine_requests_total{engine=\"router-opt\",route=%q} %d\n", k, v)
+		}
+		fmt.Fprintf(w, "# TYPE simha_engine_errors_total counter\n")
+		errCounts.mu.Lock()
+		for k, v := range errCounts.m {
+			fmt.Fprintf(w, "simha_engine_errors_total{engine=\"router-opt\",route=%q} %d\n", k, v)
+		}
+		errCounts.mu.Unlock()
+	}))
+
+	mux.HandleFunc("/terms/parse", guard(func(w http.ResponseWriter, r *http.Request) {
 		var req TermsParseReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "bad json"})
@@ -320,9 +404,9 @@ func main() {
 		}
 		facts := parseTerms("ad-hoc", req.Text)
 		writeJSON(w, 200, facts)
-	})
+	}))
 
-	mux.HandleFunc("/pool/dedup", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/pool/dedup", guard(func(w http.ResponseWriter, r *http.Request) {
 		var req PoolDedupReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, 400, map[string]any{"error": "bad json"})
@@ -330,9 +414,9 @@ func main() {
 		}
 		rows := dedupePool(req.Entries, time.Now())
 		writeJSON(w, 200, map[string]any{"rows": rows, "unique_models": len(rows)})
-	})
+	}))
 
-	mux.HandleFunc("/picks", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/picks", guard(func(w http.ResponseWriter, r *http.Request) {
 		var req TierPickReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, 400, map[string]any{"error": "bad json"})
@@ -344,9 +428,9 @@ func main() {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"picks": picks, "count": len(picks)})
-	})
+	}))
 
-	mux.HandleFunc("/optimize", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/optimize", guard(func(w http.ResponseWriter, r *http.Request) {
 		var req TierPickReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, 400, map[string]any{"error": "bad json"})
@@ -383,7 +467,7 @@ func main() {
 			},
 		}
 		writeJSON(w, 200, report)
-	})
+	}))
 
 	addr := os.Getenv("ROUTER_OPT_ADDR")
 	if addr == "" {

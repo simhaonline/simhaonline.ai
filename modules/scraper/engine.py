@@ -40,7 +40,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -59,6 +59,59 @@ MAX_CONTENT = int(os.environ.get("SCRAPER_MAX_CONTENT", "400000"))
 PERSIST_PATH = os.environ.get("SCRAPER_MONITOR_STATE", "/data/monitors.json")
 
 app = FastAPI(title="simha-scraper", version="1.0.0")
+
+# ── platform contract: flag guard + token guard + metrics (Phase 1) ─────────
+ENGINE_FLAG_ENV = "SCRAPER_ENABLED"
+START_TIME = time.time()
+REQUEST_COUNTS: dict[str, int] = {}
+
+
+def _flag_enabled() -> bool:
+    return os.environ.get(ENGINE_FLAG_ENV, "true").strip().lower() in ("1", "true", "yes", "on")
+
+
+@app.middleware("http")
+async def contract_guard(request: Request, call_next):
+    path = request.url.path
+    is_contract = path in ("/healthz", "/health/live", "/health/ready", "/metrics")
+    if not is_contract:
+        token = os.environ.get("ENGINE_API_TOKEN", "").strip()
+        if token and request.headers.get("X-Engine-Token") != token:
+            return JSONResponse({"error": "engine token required"}, status_code=401)
+        if not _flag_enabled():
+            return JSONResponse(
+                {"error": "engine disabled by feature flag", "flag": ENGINE_FLAG_ENV},
+                status_code=503)
+    resp = await call_next(request)
+    key = f"{request.method} {path}"
+    REQUEST_COUNTS[key] = REQUEST_COUNTS.get(key, 0) + 1
+    return resp
+
+
+@app.get("/health/live")
+async def live() -> JSONResponse:
+    return JSONResponse({"status": "live", "service": "simha-scraper"})
+
+
+@app.get("/health/ready")
+async def ready() -> JSONResponse:
+    state_dir = os.path.dirname(PERSIST_PATH)
+    writable = os.access(state_dir, os.W_OK) if os.path.isdir(state_dir) else False
+    ok = writable or not os.environ.get("SCRAPER_MONITOR_STATE")
+    return JSONResponse({"status": "ready" if ok else "not_ready",
+                         "checks": {"state_dir_writable": writable}},
+                        status_code=200 if ok else 503)
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    up = time.time() - START_TIME
+    lines = ["# TYPE simha_engine_uptime_seconds gauge",
+             f"simha_engine_uptime_seconds{{engine=\"scraper\"}} {up:.1f}",
+             "# TYPE simha_engine_requests_total counter"]
+    for key in sorted(REQUEST_COUNTS):
+        lines.append(f'simha_engine_requests_total{{engine="scraper",route="{key}"}} {REQUEST_COUNTS[key]}')
+    return Response("\n".join(lines) + "\n", media_type="text/plain")
 
 
 # ── fetch helpers ────────────────────────────────────────────────────────────

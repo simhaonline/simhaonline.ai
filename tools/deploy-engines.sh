@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SHA="$(git rev-parse --short=12 HEAD)"
-ENGINES=(scraper reverse router-opt rank)
+ENGINES=(scraper reverse router-opt rank discovery judge)
 PRUNE=1
 TARGETS="${ENGINES[*]}"
 

@@ -37,6 +37,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from engine_contract import install_contract
+
 LOG = logging.getLogger("simha.rank")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -47,6 +49,15 @@ BOOTSTRAP_RATING = 1200.0
 
 app = FastAPI(title="simha-rank", version="1.0.0")
 _lock = threading.Lock()
+
+
+def _state_writable() -> bool:
+    state_dir = os.path.dirname(DB_PATH)
+    return os.access(state_dir, os.W_OK) if os.path.isdir(state_dir) else False
+
+
+install_contract(app, engine="rank", flag_env="RANK_ENABLED",
+                 ready_checks={"state_dir_writable": _state_writable})
 
 
 def _conn() -> sqlite3.Connection:

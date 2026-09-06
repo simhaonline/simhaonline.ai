@@ -295,6 +295,31 @@ services:
     ports:
       - "127.0.0.1:8114:8114"
 
+  discovery:
+    build: ./modules/discovery
+    image: simhaonline-discovery:latest
+    container_name: simha-discovery
+    profiles: ["engines"]
+    environment:
+      DISCOVERY_DB_PATH: /data/discovery.db
+      DISCOVERY_FETCH_TIMEOUT: "20"
+    volumes:
+      - enginesdata:/data
+    ports:
+      - "127.0.0.1:8115:8115"
+
+  judge:
+    build: ./modules/judge
+    image: simhaonline-judge:latest
+    container_name: simha-judge
+    profiles: ["engines"]
+    environment:
+      JUDGE_BASE_URL: ${JUDGE_BASE_URL:-}
+      JUDGE_API_KEY: ${JUDGE_API_KEY:-}
+      JUDGE_MODEL: ${JUDGE_MODEL:-}
+    ports:
+      - "127.0.0.1:8116:8116"
+
 volumes:
   pgdata:
   valkeydata:
