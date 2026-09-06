@@ -49,6 +49,7 @@ func New(st *store.Store, cfg Config) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/health", s.handleHealthz) // audit M3: standard uptime-monitor alias
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/gateway-status", s.handleGatewayStatus)
 	mux.HandleFunc("/internal/refresh-models", s.handleRefreshModels)
@@ -260,16 +261,28 @@ func (s *Server) handleGatewayStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	if _, code, _ := s.authorize(r); code != 0 {
-		s.unauthorized(w)
-		return
-	}
+	// Audit M4: unauthenticated callers get a limited catalog (IDs only) so
+	// developers can evaluate the platform before creating a key. A valid
+	// key gets the full list.
+	_, code, _ := s.authorize(r)
 	models := s.st.KnownModels(r.Context())
-	data := make([]map[string]any, 0, len(models))
+	limit := len(models)
+	if code != 0 {
+		limit = 40 // teaser list for unauthenticated discovery
+	}
+	data := make([]map[string]any, 0, limit)
 	for _, m := range models {
+		if len(data) >= limit {
+			break
+		}
 		data = append(data, map[string]any{"id": m, "object": "model", "owned_by": "proxy"})
 	}
-	writeJSON(w, 200, map[string]any{"object": "list", "data": data})
+	body := map[string]any{"object": "list", "data": data}
+	if code != 0 {
+		body["notice"] = "Showing a sample of the catalog. Create a client key for the full list."
+		body["total_models"] = len(models)
+	}
+	writeJSON(w, 200, body)
 }
 
 // ---- request optimization (legacy optimize_request) ----

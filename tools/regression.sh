@@ -28,7 +28,8 @@ done
 echo "== 2. Public API (gateway :8080) =="
 check "GET /healthz" "200" "$(code "http://${IP}:8080/healthz")"
 check "GET /gateway-status" "200" "$(code "http://${IP}:8080/gateway-status")"
-check "GET /v1/models unauthenticated → 401" "401" "$(code "http://${IP}:8080/v1/models")"
+check "GET /v1/models unauthenticated → 200 sample (audit M4)" "200" "$(code "http://${IP}:8080/v1/models")"
+check "GET /health public alias (audit M3)" "200" "$(code "http://${IP}:8080/health")"
 check "POST /v1/chat/completions unauthenticated → 401" "401" \
   "$(code -X POST -H 'content-type: application/json' -d '{"model":"x","messages":[]}' "http://${IP}:8080/v1/chat/completions")"
 

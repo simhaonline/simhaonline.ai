@@ -2,6 +2,7 @@ import { Controller, Post, Get, Req, Res, Body, HttpException, HttpStatus } from
 import type { Request, Response } from 'express';
 import crypto from 'crypto';
 import { AuthService } from './auth.service';
+import { MfaService } from './mfa.service';
 
 const COOKIE = 'simha_session';
 
@@ -26,10 +27,10 @@ function isUniqueViolation(err: unknown): boolean {
 
 @Controller()
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly auth: AuthService, private readonly mfa: MfaService) {}
 
   @Post('auth/login')
-  async login(@Body() body: { email?: string; password?: string }, @Res() res: Response) {
+  async login(@Body() body: { email?: string; password?: string; mfa_code?: string }, @Res() res: Response) {
     const email = (body.email || '').toLowerCase().trim();
     const password = body.password || '';
     let userId: number | null;
@@ -55,6 +56,19 @@ export class AuthController {
         { error: 'Verify your email address before signing in — check your inbox for the confirmation link.' },
         HttpStatus.FORBIDDEN,
       );
+    }
+    // audit.md M6: TOTP second factor when enrolled
+    if (await this.mfa.isEnabled(userId)) {
+      const code = String(body.mfa_code || '').trim();
+      if (!code) {
+        throw new HttpException(
+          { error: 'Enter your 6-digit authenticator code', code: 'mfa_required' },
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+      if (!(await this.mfa.verifySecondFactor(userId, code))) {
+        throw new HttpException({ error: 'Invalid authenticator code' }, HttpStatus.UNAUTHORIZED);
+      }
     }
     const token = await this.auth.createSession(userId);
     setSessionCookie(res, token);
@@ -235,5 +249,45 @@ export class AuthController {
       throw new HttpException({ error: (err as Error).message || 'invalid password' }, HttpStatus.BAD_REQUEST);
     }
     return res.json({ ok: true, password_changed: true });
+  }
+
+  // ── audit.md M6: TOTP two-factor management (session required) ──────────────
+
+  @Get('auth/mfa/status')
+  async mfaStatus(@Req() req: Request, @Res() res: Response) {
+    const user = await this.auth.sessionUser(req.cookies?.[COOKIE]);
+    if (!user) throw new HttpException({ error: 'Authentication required' }, HttpStatus.UNAUTHORIZED);
+    return res.json({ enabled: await this.mfa.isEnabled(user.id) });
+  }
+
+  /** Step 1: generate secret + otpauth URL (scan with Google Authenticator). */
+  @Post('auth/mfa/enroll')
+  async mfaEnroll(@Req() req: Request, @Res() res: Response) {
+    const user = await this.auth.sessionUser(req.cookies?.[COOKIE]);
+    if (!user) throw new HttpException({ error: 'Authentication required' }, HttpStatus.UNAUTHORIZED);
+    if (await this.mfa.isEnabled(user.id)) {
+      throw new HttpException({ error: '2FA is already enabled' }, HttpStatus.CONFLICT);
+    }
+    const { secret, otpauth_url } = await this.mfa.beginEnrollment(user.id, user.email);
+    return res.json({ ok: true, secret, otpauth_url });
+  }
+
+  /** Step 2: confirm with the first code; returns recovery codes once. */
+  @Post('auth/mfa/confirm')
+  async mfaConfirm(@Req() req: Request, @Res() res: Response, @Body() body: { code?: string }) {
+    const user = await this.auth.sessionUser(req.cookies?.[COOKIE]);
+    if (!user) throw new HttpException({ error: 'Authentication required' }, HttpStatus.UNAUTHORIZED);
+    const result = await this.mfa.confirmEnrollment(user.id, String(body.code || ''));
+    if (!result.ok) throw new HttpException({ error: result.error }, HttpStatus.BAD_REQUEST);
+    return res.json({ ok: true, recovery_codes: result.recovery_codes });
+  }
+
+  @Post('auth/mfa/disable')
+  async mfaDisable(@Req() req: Request, @Res() res: Response, @Body() body: { code?: string }) {
+    const user = await this.auth.sessionUser(req.cookies?.[COOKIE]);
+    if (!user) throw new HttpException({ error: 'Authentication required' }, HttpStatus.UNAUTHORIZED);
+    const result = await this.mfa.disable(user.id, String(body.code || ''));
+    if (!result.ok) throw new HttpException({ error: result.error }, HttpStatus.BAD_REQUEST);
+    return res.json({ ok: true, disabled: true });
   }
 }

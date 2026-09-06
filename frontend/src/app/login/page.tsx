@@ -68,8 +68,9 @@ export default function LoginPage() {
             <button className="btn primary" type="submit" disabled={busy}>
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-              No account? <a href="/signup">Create one</a>.
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <span>No account? <a href="/signup">Create one</a>.</span>
+              <a href="/forgot-password">Forgot password?</a>
             </p>
           </form>
         </section>

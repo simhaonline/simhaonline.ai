@@ -1,12 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import TopBar from '@/components/TopBar';
 
 interface Check {
   checked_at: string;
   provider_ok: boolean;
   models_ok: boolean;
+}
+
+// The worker emits ISO timestamps already carrying a UTC offset
+// ("...+00:00"). Appending 'Z' (legacy) produced "Invalid Date" for every
+// row (audit C2) — parse defensively instead.
+function parseWhen(value: string): Date | null {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export default function StatusPage() {
@@ -29,6 +37,12 @@ export default function StatusPage() {
 
   const latest = checks[0];
   const allOk = latest ? latest.provider_ok && latest.models_ok : false;
+  // 30-day style uptime from the visible window (checks run every minute)
+  const uptime = useMemo(() => {
+    if (!checks.length) return null;
+    const ok = checks.filter((c) => c.provider_ok && c.models_ok).length;
+    return (100 * ok) / checks.length;
+  }, [checks]);
 
   return (
     <>
@@ -37,8 +51,11 @@ export default function StatusPage() {
         <section className="hero" style={{ paddingBottom: 12 }}>
           <div className="kicker">System status</div>
           <h1 style={{ fontSize: 32, margin: '0 0 10px' }}>
-            {loaded && !error ? (allOk ? 'All systems operational' : 'Degraded') : loaded ? 'Status unavailable' : 'Checking…'}
+            {loaded && !error ? (checks.length ? (allOk ? 'All systems operational' : 'Degraded') : 'Status unavailable') : loaded ? 'Status unavailable' : 'Checking…'}
           </h1>
+          {uptime !== null && (
+            <p className="sub">Provider gateway uptime: {uptime.toFixed(2)}% over the last {checks.length} checks.</p>
+          )}
           {error && <p className="sub">Could not reach the status feed: {error}</p>}
         </section>
         <section>
@@ -54,25 +71,32 @@ export default function StatusPage() {
                 </span>
               </div>
             )}
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Checked at</th>
-                  <th>Provider</th>
-                  <th>Models</th>
-                </tr>
-              </thead>
-              <tbody>
-                {checks.slice(0, 15).map((c) => (
-                  <tr key={c.checked_at}>
-                    <td>{new Date(c.checked_at + 'Z').toLocaleString()}</td>
-                    <td>{c.provider_ok ? 'up' : 'down'}</td>
-                    <td>{c.models_ok ? 'ready' : 'empty'}</td>
+            {!checks.length && loaded && !error && (
+              <p className="sub">No health checks have been recorded yet. Checks run every minute once the platform worker is active — this table fills automatically.</p>
+            )}
+            {checks.length > 0 && (
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Checked at</th>
+                    <th>Provider</th>
+                    <th>Models</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {!checks.length && loaded && !error && <p className="sub">No checks recorded yet.</p>}
+                </thead>
+                <tbody>
+                  {checks.slice(0, 15).map((c) => {
+                    const when = parseWhen(c.checked_at);
+                    return (
+                      <tr key={c.checked_at}>
+                        <td>{when ? when.toLocaleString() : c.checked_at}</td>
+                        <td>{c.provider_ok ? 'up' : 'down'}</td>
+                        <td>{c.models_ok ? 'ready' : 'empty'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </section>
       </main>

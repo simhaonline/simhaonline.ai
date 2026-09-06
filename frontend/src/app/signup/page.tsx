@@ -13,6 +13,7 @@ export default function SignupPage() {
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [verifyNotice, setVerifyNotice] = useState('');
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -32,11 +33,37 @@ export default function SignupPage() {
         const d = await r.json().catch(() => ({}));
         throw new Error(d.error || `HTTP ${r.status}`);
       }
-      window.location.href = '/dashboard';
+      // Audit M1: accounts require email verification before sign-in —
+      // surface that clearly instead of dropping the user on a dead session.
+      setVerifyNotice(form.email);
     } catch (err: unknown) {
       setError(String((err as Error).message || err));
       setBusy(false);
     }
+  }
+
+  if (verifyNotice) {
+    return (
+      <>
+        <TopBar />
+        <main className="container" style={{ maxWidth: 460, paddingTop: 80 }}>
+          <section>
+            <div className="kicker">Confirm your email</div>
+            <h1 style={{ fontSize: 28, margin: '0 0 14px' }}>Check your inbox</h1>
+            <div className="card" style={{ display: 'grid', gap: 12 }}>
+              <p style={{ margin: 0 }}>
+                We sent a verification link to <b>{verifyNotice}</b>. Click it to activate your account —
+                sign-in is blocked until the address is confirmed.
+              </p>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
+                The link expires in 24 hours. Check spam if it does not arrive within a few minutes.
+              </p>
+              <a className="btn" href="/login">Back to sign in</a>
+            </div>
+          </section>
+        </main>
+      </>
+    );
   }
 
   return (
@@ -78,7 +105,7 @@ export default function SignupPage() {
                 onChange={(e) => set('terms_accepted', e.target.checked)}
                 required
               />
-              I accept the Terms of Use
+              I accept the <a href="https://simhaonline.ai/terms" target="_blank" rel="noreferrer">Terms of Use</a>
             </label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
               <input
@@ -88,7 +115,7 @@ export default function SignupPage() {
                 onChange={(e) => set('privacy_accepted', e.target.checked)}
                 required
               />
-              I accept the Privacy Policy
+              I accept the <a href="https://simhaonline.ai/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
             </label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
               <input

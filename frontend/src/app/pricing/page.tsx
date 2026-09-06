@@ -67,6 +67,18 @@ export default function Pricing() {
           <p className="sub">You bring the provider accounts; we route them well. Cancel anytime.</p>
           {msg && <p style={{ color: 'var(--accent)', marginTop: 10 }}>{msg}</p>}
         </section>
+        {/* Server-rendered plan summary: visible to search engines and link
+            previews even before client hydration (audit H8). */}
+        <noscript>
+          <section>
+            <div className="grid cols-3">
+              <div className="card"><h3>Free</h3><p style={{ fontWeight: 700 }}>Free</p><ul style={{ margin: 0, paddingLeft: 18, color: 'var(--muted)', fontSize: 14 }}><li>200 requests / day</li><li>3,000 requests / month</li><li>1 API key</li><li>10 req/min burst</li></ul></div>
+              <div className="card"><h3>Pro</h3><p style={{ fontWeight: 700 }}>$19/mo</p><ul style={{ margin: 0, paddingLeft: 18, color: 'var(--muted)', fontSize: 14 }}><li>5,000 requests / day</li><li>80,000 requests / month</li><li>5 API keys</li><li>60 req/min burst</li></ul></div>
+              <div className="card"><h3>Business</h3><p style={{ fontWeight: 700 }}>$99/mo</p><ul style={{ margin: 0, paddingLeft: 18, color: 'var(--muted)', fontSize: 14 }}><li>Unlimited requests</li><li>20 API keys</li><li>300 req/min burst</li></ul></div>
+            </div>
+            <p className="sub" style={{ marginTop: 12 }}>Enable JavaScript to subscribe, or email hello@simhaonline.ai.</p>
+          </section>
+        </noscript>
         <section>
           <div className="grid cols-3">
             {(plans || []).map((p) => (

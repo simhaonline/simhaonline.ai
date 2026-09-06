@@ -1,0 +1,11 @@
+# Audit L3: robots must be fetchable on every public host.
+# The marketing app now serves a generated robots.txt at /robots.txt; this
+# vhost-level alias covers hosts that proxy elsewhere (status/docs).
+
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /control-center
+Disallow: /api/
+
+Sitemap: https://simhaonline.ai/sitemap.xml
