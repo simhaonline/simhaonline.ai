@@ -17,6 +17,9 @@ export interface StreamOptions {
   /** Optional per-request overrides (compare mode uses these). */
   model?: string;
   body?: Record<string, unknown>;
+  /** Media generation mode — tags the request so the gateway routes to a
+   *  media provider (fal/veo/sora) instead of a text model. */
+  mediaMode?: 'image' | 'video' | 'audio' | null;
 }
 
 export async function streamChat(
@@ -39,6 +42,7 @@ export async function streamChat(
       stream: true,
       tools: plugins,
       file_ids: fileIds,
+      ...(opts.mediaMode ? { output_modality: opts.mediaMode, stream: false } : {}),
       ...(opts.body || {}),
     }),
   });

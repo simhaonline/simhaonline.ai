@@ -574,6 +574,38 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 				prefix = "/v1"
 			}
 		}
+
+		// fal.ai media adapter: fal has no /v1/chat/completions — translate
+		// chat payloads into its native synchronous model call. Without this
+		// every media request 404s and silently cools the account down.
+		if isFalAccount(acc.ProviderName(), acc.BaseURL) && (path == "chat/completions" || path == "completions") {
+			var falData map[string]any
+			if err := json.Unmarshal(body, &falData); err == nil {
+				kind := falTaskFromModality(outputModality, task)
+				if kind == "" {
+					kind = guessFalKind(model)
+				}
+				if kind != "" {
+					prompt := lastUserText(falData)
+					if prompt != "" {
+						url, usedKind, err := falGenerate(ctx, s.st.HTTPClient(), s.st.UpstreamAuthHeaders(ctx, acc), model, prompt, kind)
+						if err != nil {
+							log.Printf("[fal-media] %s: %v", acc.Name, err)
+							s.st.SetCooldown(ctx, acc.Name, 30)
+							continue
+						}
+						s.st.ClearStrikes(ctx, acc.Name)
+						s.st.MarkUsed(ctx, acc.Name)
+						_ = s.st.RecordUsage(ctx, acc.Name, model, 200, 0, int64(len(prompt)), 10, ac.UserID, ac.ClientKeyID)
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusOK)
+						_, _ = w.Write(falChatResponse(model, url, usedKind, len(prompt)))
+						return
+					}
+				}
+			}
+		}
+
 		target := strings.TrimRight(acc.BaseURL, "/") + "/" + strings.Trim(prefix, "/")
 		if path != "" {
 			target += "/" + path

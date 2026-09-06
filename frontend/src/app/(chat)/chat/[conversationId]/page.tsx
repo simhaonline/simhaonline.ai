@@ -66,7 +66,7 @@ export default function ConversationPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages[conversationId]?.length, messages[conversationId]?.[messages[conversationId]?.length - 1]?.content]);
 
-  const runStream = useCallback(async (history: ChatMessage[]) => {
+  const runStream = useCallback(async (history: ChatMessage[], mediaMode?: 'image' | 'video' | 'audio' | null) => {
     const controller = new AbortController();
     abortRef.current = controller;
     setStreamError('');
@@ -82,6 +82,7 @@ export default function ConversationPage() {
         [],
         {
           signal: controller.signal,
+          mediaMode: mediaMode || null,
           onChunk: (chunk) => { content += chunk; updateStreamingMessage(conversationId, content); },
           onDone: async (usage) => {
             const latency = Date.now() - started;
@@ -106,14 +107,14 @@ export default function ConversationPage() {
     }
   }, [conversationId, selectedModel, enabledPlugins, updateStreamingMessage, finalizeStreamingMessage]);
 
-  async function send({ text, fileIds }: { text: string; fileIds: string[] }) {
+  async function send({ text, fileIds, mediaMode }: { text: string; fileIds: string[]; mediaMode?: 'image' | 'video' | 'audio' | null }) {
     void fileIds;
     // optimistic user message
     const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: 'user', content: text };
     appendMessage(conversationId, userMsg);
     const history = [...(messages[conversationId] || []), userMsg];
     try { await wbApi.messages.save(conversationId, { role: 'user', content: text }); } catch { /* retry later */ }
-    await runStream(history);
+    await runStream(history, mediaMode);
   }
 
   async function regenerate(message: BubbleMessage) {

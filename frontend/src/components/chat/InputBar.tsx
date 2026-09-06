@@ -15,6 +15,8 @@ import { ModelSelector } from './ModelSelector';
 export interface SendPayload {
   text: string;
   fileIds: string[];
+  /** media generation mode: null = normal chat */
+  mediaMode?: 'image' | 'video' | 'audio' | null;
 }
 
 export function InputBar({
@@ -30,6 +32,7 @@ export function InputBar({
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [mediaMode, setMediaMode] = useState<'image' | 'video' | 'audio' | null>(null);
   const [notice, setNotice] = useState('');
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
 
@@ -48,8 +51,9 @@ export function InputBar({
   function submit() {
     const text = draft.trim();
     if (!text || streaming || disabled) return;
-    onSend({ text, fileIds: useChat.getState().attachedFiles.map((f) => f.fileId) });
+    onSend({ text, fileIds: useChat.getState().attachedFiles.map((f) => f.fileId), mediaMode });
     setDraft('');
+    setMediaMode(null);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -139,7 +143,10 @@ export function InputBar({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
             rows={1}
-            placeholder="Ask anything…"
+            placeholder={mediaMode === 'image' ? 'Describe the image to generate…'
+              : mediaMode === 'video' ? 'Describe the video to generate…'
+              : mediaMode === 'audio' ? 'Describe the audio to generate…'
+              : 'Ask anything…'}
             aria-label="Message"
             className="max-h-[200px] min-h-[52px] w-full resize-none bg-transparent px-5 pt-4 text-[15px] leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
           />
@@ -176,6 +183,24 @@ export function InputBar({
               >
                 <span className="text-[15px] leading-none" aria-hidden>◎</span>
               </button>
+              {/* media generation modes */}
+              <span className="mx-1 h-5 w-px bg-zinc-700" aria-hidden />
+              {(['image', 'video', 'audio'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMediaMode((cur) => (cur === m ? null : m))}
+                  aria-pressed={mediaMode === m}
+                  title={`Generate ${m} — type a description and send`}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] capitalize cursor-pointer',
+                    mediaMode === m
+                      ? 'border-violet-500 bg-violet-500/15 text-violet-300'
+                      : 'border-zinc-700 text-zinc-400 hover:text-zinc-200',
+                  )}
+                >
+                  {m === 'image' ? '🖼' : m === 'video' ? '🎬' : '🎵'} {m}
+                </button>
+              ))}
               {activePersona && (
                 <span className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 py-1 pl-1.5 pr-2.5 text-[11px] text-violet-300">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: activePersona.color }} aria-hidden />

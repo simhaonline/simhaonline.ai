@@ -438,6 +438,9 @@ func (s *Store) GetAccount(ctx context.Context, name string) *Account {
 	return nil
 }
 
+// HTTPClient exposes the shared outbound client (fal media adapter).
+func (s *Store) HTTPClient() *http.Client { return s.httpClient }
+
 func (s *Store) snapshotAccounts() []*Account {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

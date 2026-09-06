@@ -38,11 +38,12 @@ export class WorkbenchStreamController {
   async completions(
     @Req() req: Request, @Res() res: Response,
     @Body() body: {
-      conversation_id?: number;
-      model?: string;
-      messages?: Array<{ role: string; content: string }>;
-      stream?: boolean;
-    },
+   conversation_id?: number;
+   model?: string;
+   messages?: Array<{ role: string; content: string }>;
+   stream?: boolean;
+   output_modality?: string;
+ },
   ) {
     const cookie = req.headers.cookie || '';
     const m = cookie.match(/(?:^|;\s*)simha_session=([^;]*)/);
@@ -78,10 +79,20 @@ export class WorkbenchStreamController {
     let content = '';
     let completionTokens = 0;
 
+    // media generation: pass the modality through so the gateway's fal adapter
+    // routes to a media provider; fal is synchronous → no SSE stream.
+    const mediaMode = String(body.output_modality || '').toLowerCase();
+    const isMedia = mediaMode === 'image' || mediaMode === 'video' || mediaMode === 'audio';
+
     const upstream = await fetch(gateway, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gatewayKey}` },
-      body: JSON.stringify({ model: body.model || 'auto', messages, stream: true }),
+      body: JSON.stringify({
+        model: body.model || 'auto',
+        messages,
+        stream: !isMedia,
+        ...(isMedia ? { output_modality: mediaMode } : {}),
+      }),
     });
     if (!upstream.ok || !upstream.body) {
       const detail = await upstream.json().catch(() => ({}));
@@ -101,6 +112,25 @@ export class WorkbenchStreamController {
       await this.pool.query(
         `UPDATE chat_history SET updated_at = now() WHERE id = $1`, [conversationId]);
     };
+
+    // media path: the gateway's fal adapter returns a plain chat completion
+    // (no SSE). Extract the markdown-wrapped media URL, persist it, and
+    // hand the browser a one-shot SSE payload so the client code is uniform.
+    if (isMedia) {
+      const done = (await upstream.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { completion_tokens?: number };
+      };
+      content = done.choices?.[0]?.message?.content || '';
+      completionTokens = done.usage?.completion_tokens || 0;
+      await finalize();
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
