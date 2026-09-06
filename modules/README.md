@@ -125,20 +125,44 @@ sources can advance entities to `active`.
 Seeded in production: official MCP server registry (README list) + GitHub topic
 pages. Unit tests: `modules/discovery/test_engine.py` (18 checks).
 
-## 6. judge — LLM-as-a-judge (port 8116)
+## 6. judge — LLM-as-a-judge (port 8116) — REGISTRY-INTEGRATED
 
-Independent evaluation service for the routing feedback loop (prompt.md §22-25).
+Independent evaluation service wired into SIMHA's provider/model registry.
+
+**Config**: stored in Postgres `app_settings['judge_policy']`
+(`{mode: auto|manual|heuristic_only, chain: [{account, model}], consensus_judges}`).
+Changeable from Admin → Evaluation → Judge Settings at runtime — no restarts,
+no `.env` (a legacy `JUDGE_BASE_URL` env only seeds a one-time bootstrap policy
+if the DB has none).
+
+**Judge chain**: hops reference registry accounts by name; credentials,
+protocol (openai/anthropic/ollama) and base URLs come from the `accounts`
+table — no duplicate provider config. Failover: primary → secondary →
+tie-breaker → fallback → heuristic (degraded, always flagged).
+
+**AUTO mode**: scores registry candidates by recent success rate, capability
+heuristic and latency, skipping recently-failing accounts; re-resolved on
+every call so policy/health changes apply instantly.
+
+**HEURISTIC MODE**: when no LLM judge is configured/reachable, the
+deterministic baseline judge runs and `heuristic_mode: true` is surfaced in
+every response, `/stats`, and the dashboard banner.
 
 | Endpoint | Body | Purpose |
 |---|---|---|
-| `POST /judge/single` | `{prompt, response, criteria?, rubric_hint?}` | rubric scoring 0-10 per criterion + overall + rationale |
-| `POST /judge/pairwise` | `{prompt, response_a, response_b, criteria?, reverse_order?, randomize?}` | A/B verdict with reverse-order rejudge; reports `position_bias_detected` when passes disagree |
-| `POST /judge/multi` | `{prompt, response, judges?, quorum?, criteria?}` | multi-judge consensus (mean, spread, quorum gate) |
+| `POST /judge/single` | `{prompt, response, criteria?, subject_ref?}` | rubric scoring via the resolved judge chain |
+| `POST /judge/pairwise` | `{prompt, response_a, response_b, criteria?, subject_ref?}` | A/B verdict through the chain |
+| `POST /policy` | `{mode, primary?, secondary?, tie_breaker?, fallback?, consensus_judges}` | save policy (validated against registry accounts) |
+| `GET /policy` | — | current effective policy |
+| `POST /policy/validate` | — | probe each hop + list AUTO candidates |
+| `GET /stats` | — | per-backend runs/failures/degradations/latency/tokens/failover rates |
 
-Backend: set `JUDGE_BASE_URL` + `JUDGE_MODEL` (+ optional `JUDGE_API_KEY`) to any
-OpenAI-compatible endpoint for real LLM judging; without them a deterministic
-heuristic judge runs (flagged in responses as `backend: "heuristic"`). Unit
-tests: `modules/judge/test_engine.py`.
+Every execution is recorded in Postgres `judge_runs` (chain, backend, tokens,
+latency, failovers, status ok/degraded/failed) — the data behind the admin
+Evaluation dashboard. Admin API: `GET/POST /admin/api/judge/settings|policy`,
+`GET /admin/api/judge/stats`, `POST /admin/api/judge/probe` (via BFF
+`/api/admin/judge/*` from the dashboard). Unit tests: 20 checks including
+failover order, degraded fallback, protocol adapters, policy shape.
 
 - compose profile gate + `127.0.0.1`-only ports (verified: `docker compose config --services`
   unchanged for core with/without the profile)

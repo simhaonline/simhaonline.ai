@@ -314,9 +314,9 @@ services:
     container_name: simha-judge
     profiles: ["engines"]
     environment:
-      JUDGE_BASE_URL: ${JUDGE_BASE_URL:-}
-      JUDGE_API_KEY: ${JUDGE_API_KEY:-}
-      JUDGE_MODEL: ${JUDGE_MODEL:-}
+      JUDGE_DATABASE_URL: postgres://${POSTGRES_USER:-simha}:${POSTGRES_PASSWORD:-simha_dev_password}@postgres:5432/${POSTGRES_DB:-simhaonline}
+    depends_on:
+      - postgres
     ports:
       - "127.0.0.1:8116:8116"
 
