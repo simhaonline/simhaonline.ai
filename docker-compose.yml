@@ -237,8 +237,67 @@ services:
 #   location ~ ^/(auth|admin|billing)(/|$) { proxy_pass http://152.53.67.111:8081; ... }   # chat vhost
 #   location ~ ^/(status-data|status-subscribe)$ { proxy_pass http://152.53.67.111:8001; ... }  # status vhost
 #   location / { proxy_pass http://152.53.67.111:8080; ... }   # api vhost
+# ── Isolated engines (profile: "engines") ─────────────────────────────────────
+# Standalone modules that must NOT touch core services: no DB, no valkey, no
+# shared code. They live on the `engines` profile, so plain `docker compose up
+# -d` never starts them and core deploys never rebuild them. Each binds
+# 127.0.0.1 ONLY — reachable from the host / SSH tunnels, never from Plesk.
+#
+#   scraper     8111  Scrapling-inspired: fetch/extract/crawl/diff/monitor
+#   reverse     8112  gitreverse-inspired: repo & website structure/dep analysis
+#   router-opt  8113  OmniRoute-inspired: pool dedup, credit tiers, terms parsing
+#   rank        8114  arena-rank-inspired: Elo leaderboard, battles, history
+#
+# Run/stop:  docker compose --profile engines up -d
+#            docker compose --profile engines down
+# Deploy:    tools/deploy-engines.sh (build + sha-tag + health-gate + prune)
+
+  scraper:
+    build: ./modules/scraper
+    image: simhaonline-scraper:latest
+    container_name: simha-scraper
+    profiles: ["engines"]
+    environment:
+      SCRAPER_FETCH_TIMEOUT: "20"
+    volumes:
+      - enginesdata:/data
+    ports:
+      - "127.0.0.1:8111:8111"
+
+  reverse:
+    build: ./modules/reverse
+    image: simhaonline-reverse:latest
+    container_name: simha-reverse
+    profiles: ["engines"]
+    environment:
+      REVERSE_FETCH_TIMEOUT: "20"
+      REVERSE_CLONE_TIMEOUT: "120"
+    volumes:
+      - enginesdata:/data
+    ports:
+      - "127.0.0.1:8112:8112"
+
+  router-opt:
+    build: ./modules/router-opt
+    image: simhaonline-router-opt:latest
+    container_name: simha-router-opt
+    profiles: ["engines"]
+    ports:
+      - "127.0.0.1:8113:8113"
+
+  rank:
+    build: ./modules/rank
+    image: simhaonline-rank:latest
+    container_name: simha-rank
+    profiles: ["engines"]
+    volumes:
+      - enginesdata:/data
+    ports:
+      - "127.0.0.1:8114:8114"
+
 volumes:
   pgdata:
   valkeydata:
   uploadsdata:
   miniodata:
+  enginesdata:

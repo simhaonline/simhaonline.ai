@@ -81,13 +81,38 @@ as a polyglot production platform:
 ```
 database/           SQL migrations (extensions, schema, TimescaleDB, seed)
 docs/               Architecture, API contract, migration guide
-edge/               nginx edge proxy (hostname → service routing)
 frontend/           Next.js UI (marketing, workbench, control center)
 services/gateway/   Go hot-path router
 services/control-plane/  NestJS REST API
 services/worker/    Python background jobs
+modules/            ISOLATED engines (scraper/reverse/router-opt/rank — profile "engines")
+tools/              deploy.sh, deploy-engines.sh, Plesk directive files
 tools/migrate-sqlite/  One-shot SQLite → PostgreSQL data migration
 ```
+
+Note: the edge nginx container was removed — Plesk (remote) is the front door.
+
+## Isolated engines (scraping / reverse-engineering / routing-optimizer / arena-ranking)
+
+Four standalone modules live under `modules/`, each inspired by an external
+project but **re-implemented from scratch (no repo integrated)**, fully
+decoupled from the core stack — they run on the compose profile `engines`,
+bind 127.0.0.1-only ports, and share no code, DB, or cache with the platform:
+
+| Engine | Port | Inspires on | What it does |
+|---|---|---|---|
+| scraper | 8111 | Scrapling | fetch/extract/crawl/diff + change monitors |
+| reverse | 8112 | gitreverse | repo & website structure/dependency/framework analysis |
+| router-opt | 8113 | OmniRoute methodology | pool dedup, credit-tier picks, provider-terms parsing (advisory only) |
+| rank | 8114 | arena-rank | Elo model leaderboard, battles, rating history |
+
+```bash
+docker compose --profile engines up -d   # start engines
+tools/deploy-engines.sh                  # clean engine deploy (sha-tag + prune)
+```
+
+Full endpoint reference: `modules/README.md`. These engines never touch the
+gateway/control-plane/worker/web services or their data stores.
 
 ## Run
 
