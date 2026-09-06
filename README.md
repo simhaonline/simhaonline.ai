@@ -97,6 +97,24 @@ docker compose up -d --build
 make smoke                    # end-to-end checks
 ```
 
+## Deploying changes (clean images — no stale leftovers)
+
+Every deploy goes through `tools/deploy.sh` so images are always traceable to the
+commit that produced them and old builds are removed automatically:
+
+```bash
+tools/deploy.sh               # build + tag + recreate + prune (all 4 app services)
+tools/deploy.sh gateway       # one service only
+tools/deploy.sh --no-prune    # keep old images (debugging)
+```
+
+What it does: builds from the current commit, tags every image with the git SHA
+(`simhaonline-gateway:<sha>` plus `:latest`), recreates containers, waits for
+health, then deletes untagged leftovers and previous SHAs. After a deploy
+`docker images | grep simhaonline` shows exactly one `latest` + one SHA-tagged
+image per service, and `docker inspect simha-<svc>` image IDs match those tags —
+no "old image is running" ambiguity.
+
 ## Plesk reverse proxy (no nginx container in the stack)
 
 Canonical host roots are supported directly: `https://simhaonline.ai/` for marketing,
