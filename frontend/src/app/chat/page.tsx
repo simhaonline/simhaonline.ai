@@ -12,9 +12,7 @@ interface SavedResource { id: number; title: string; kind: string; content: stri
 interface GeneratedItem { id: number; kind: string; prompt: string; status: string; result_ref?: string | null; created_at: string; }
 
 const navGroups = [
-  { label: '', items: [['chats', '⌁', 'Chats'], ['library', '▧', 'Library'], ['memory', '◌', 'Memory']] },
-  { label: 'Tools', items: [['skills', '✦', 'Skills'], ['agents', '◈', 'Agents'], ['code', '</>', 'Code']] },
-  { label: 'Connections', items: [['mcp', '⌘', 'Integrations'], ['data', '▦', 'Data sources']] },
+  { label: '', items: [['chats', '⌁', 'Chats'], ['library', '▧', 'Library'], ['studio', '✦', 'Studio'], ['mcp', '⌘', 'Integrations']] },
 ];
 
 // Platform-aware modifier glyph: ⌘ on Apple keyboards, Ctrl elsewhere.
@@ -22,10 +20,20 @@ const isApple = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navig
 const MOD = isApple ? '⌘' : 'Ctrl';
 
 const PANEL_LABELS: Record<string, string> = {
-  chats: 'Chats', library: 'Library', memory: 'Memory', skills: 'Skills',
-  agents: 'Agents', code: 'Code', mcp: 'Integrations',
-  plugins: 'Plugin Gallery', data: 'Data sources',
+  chats: 'Chats', library: 'Library', studio: 'Studio', mcp: 'Integrations',
 };
+
+// Sub-tabs inside the merged panels (market-standard: one door per concept).
+const LIBRARY_TABS = [
+  { id: 'assets', label: 'Catalog' },
+  { id: 'memory', label: 'Memory' },
+  { id: 'data', label: 'Data sources' },
+];
+const STUDIO_TABS = [
+  { id: 'skills', label: 'Skills' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'code', label: 'Code' },
+];
 
 // Curated routing profiles — the single source of truth for model + route
 // selection. "Auto (best model)" is the default; the other options pin a routing
@@ -74,6 +82,8 @@ export default function ChatPage() {
   const [assetQuery, setAssetQuery] = useState('');
   const [assetSaving, setAssetSaving] = useState(false);
   const [activePanel, setActivePanel] = useState('chats');
+  const [libraryTab, setLibraryTab] = useState('assets');
+  const [studioTab, setStudioTab] = useState('skills');
   const [contextOpen, setContextOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -358,10 +368,15 @@ export default function ChatPage() {
   function panelAction(id: string) {
     setActivePanel(id);
     setContextOpen(false);
-    if (id === 'memory') void loadSavedResources();
-    else if (id === 'code') void loadGenerated();
-    else if (id === 'mcp') void loadCatalogType('mcp_connector');
-    else if (id === 'data') void loadCatalogType('dataset');
+    // lazily load everything the merged panels can show
+    if (id === 'library') {
+      void loadSavedResources();
+      void loadCatalogType('dataset');
+    } else if (id === 'studio') {
+      void loadGenerated();
+    } else if (id === 'mcp') {
+      void loadCatalogType('mcp_connector');
+    }
     if (id !== 'chats') {
       const label = PANEL_LABELS[id] || id.replace('-', ' ');
       setNotice(`${label} is open inside this Workbench. Your conversation stays active.`);
@@ -419,13 +434,16 @@ export default function ChatPage() {
   async function saveConnector() {
     const name = assetQuery.trim();
     if (!name || assetSaving) return;
+    // asset type follows where the user is: Integrations panel = connector,
+    // Library → Data sources tab = dataset
+    const assetType = activePanel === 'mcp' ? 'mcp_connector' : 'dataset';
     setAssetSaving(true);
     try {
       const r = await fetch('/api/chat/library/catalog', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          asset_type: activePanel === 'mcp' ? 'mcp_connector' : 'dataset',
+          asset_type: assetType,
           name,
           description: '',
         }),
@@ -433,7 +451,7 @@ export default function ChatPage() {
       if (r.ok) {
         setAssetQuery('');
         setNotice('Added to your workspace.');
-        await loadCatalogType(activePanel === 'mcp' ? 'mcp_connector' : 'dataset');
+        await loadCatalogType(assetType);
       } else {
         setNotice('Could not add that item — try again.');
       }
@@ -514,76 +532,110 @@ export default function ChatPage() {
               </div>
               {activePanel === 'library' && (
                 <div className="rail-library">
-                  <input placeholder="Find an asset…" value={libraryQuery} onChange={(e) => setLibraryQuery(e.target.value)} />
-                  {visibleAssets.map((a) => (
-                    <button key={a.id} onClick={() => selectAsset(a)}>
-                      <b>{a.name}</b>
-                      <small>{a.asset_type.replaceAll('_', ' ')} · v{a.current_version}</small>
-                    </button>
-                  ))}
-                  {!library.length && <small className="rail-empty">No catalog assets yet.</small>}
+                  <div className="rail-tabs" role="tablist">
+                    {LIBRARY_TABS.map((t) => (
+                      <button key={t.id} role="tab" aria-selected={libraryTab === t.id} className={libraryTab === t.id ? 'active' : ''} onClick={() => setLibraryTab(t.id)}>{t.label}</button>
+                    ))}
+                  </div>
+                  {libraryTab === 'assets' && (
+                    <>
+                      <input placeholder="Find an asset…" value={libraryQuery} onChange={(e) => setLibraryQuery(e.target.value)} />
+                      {visibleAssets.map((a) => (
+                        <button key={a.id} onClick={() => selectAsset(a)}>
+                          <b>{a.name}</b>
+                          <small>{a.asset_type.replaceAll('_', ' ')} · v{a.current_version}</small>
+                        </button>
+                      ))}
+                      {!library.length && <small className="rail-empty">No catalog assets yet.</small>}
+                    </>
+                  )}
+                  {libraryTab === 'memory' && (
+                    <>
+                      <input placeholder="Name (optional)" value={memoryTitle} onChange={(e) => setMemoryTitle(e.target.value)} />
+                      <textarea placeholder="Remember that…" value={memoryContent} onChange={(e) => setMemoryContent(e.target.value)} rows={3} />
+                      <button className="rail-save" onClick={() => void saveMemory()} disabled={!memoryContent.trim() && !memoryTitle.trim()}>Save memory</button>
+                      {savedResources.map((s) => (
+                        <div key={s.id} className="rail-resource">
+                          <button onClick={() => { setInput(s.content || s.title); setActivePanel('chats'); }}>
+                            <b>{s.title}</b>
+                            {s.content && <small>{s.content.slice(0, 80)}</small>}
+                          </button>
+                          <button className="resource-delete" onClick={() => void deleteSavedResource(s.id)} aria-label={`Delete ${s.title}`}>×</button>
+                        </div>
+                      ))}
+                      {!savedResources.length && <small className="rail-empty">Nothing saved yet.</small>}
+                    </>
+                  )}
+                  {libraryTab === 'data' && (
+                    <>
+                      <div className="rail-add-row">
+                        <input placeholder="Dataset name…" value={assetQuery} onChange={(e) => setAssetQuery(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void saveConnector(); }} />
+                        <button className="rail-add" onClick={() => void saveConnector()} disabled={!assetQuery.trim() || assetSaving}>Add</button>
+                      </div>
+                      {(typedAssets['dataset'] || []).map((a) => (
+                        <button key={a.id} onClick={() => selectAsset(a)}>
+                          <b>{a.name}</b>
+                          <small>{a.asset_type.replaceAll('_', ' ')}{a.description ? ` · ${a.description.slice(0, 50)}` : ''}</small>
+                        </button>
+                      ))}
+                      {!(typedAssets['dataset'] || []).length && <small className="rail-empty">Nothing here yet — add one above.</small>}
+                    </>
+                  )}
                 </div>
               )}
-              {activePanel === 'memory' && (
+              {activePanel === 'studio' && (
                 <div className="rail-library">
-                  <input placeholder="Name (optional)" value={memoryTitle} onChange={(e) => setMemoryTitle(e.target.value)} />
-                  <textarea placeholder="Remember that…" value={memoryContent} onChange={(e) => setMemoryContent(e.target.value)} rows={3} />
-                  <button className="rail-save" onClick={() => void saveMemory()} disabled={!memoryContent.trim() && !memoryTitle.trim()}>Save memory</button>
-                  {savedResources.map((s) => (
-                    <div key={s.id} className="rail-resource">
-                      <button onClick={() => { setInput(s.content || s.title); setActivePanel('chats'); }}>
-                        <b>{s.title}</b>
-                        {s.content && <small>{s.content.slice(0, 80)}</small>}
-                      </button>
-                      <button className="resource-delete" onClick={() => void deleteSavedResource(s.id)} aria-label={`Delete ${s.title}`}>×</button>
-                    </div>
-                  ))}
-                  {!savedResources.length && <small className="rail-empty">Nothing saved yet.</small>}
+                  <div className="rail-tabs" role="tablist">
+                    {STUDIO_TABS.map((t) => (
+                      <button key={t.id} role="tab" aria-selected={studioTab === t.id} className={studioTab === t.id ? 'active' : ''} onClick={() => setStudioTab(t.id)}>{t.label}</button>
+                    ))}
+                  </div>
+                  {studioTab !== 'code' && (
+                    <>
+                      {(features.filter((f) => f.kind === (studioTab === 'skills' ? 'skill' : 'agent'))).map((f) => (
+                        <button key={f.id} onClick={() => void toggleFeature(f)} title={f.description}>
+                          <b>{f.name}</b>
+                          <small>{f.enabled ? 'enabled' : 'off'} · click to toggle</small>
+                        </button>
+                      ))}
+                      {!(features.filter((f) => f.kind === (studioTab === 'skills' ? 'skill' : 'agent'))).length && <small className="rail-empty">Nothing in the catalog yet.</small>}
+                    </>
+                  )}
+                  {studioTab === 'code' && (
+                    <>
+                      <small className="rail-empty">Generated artifacts land here after image/code runs.</small>
+                      {generated.map((g) => (
+                        <div key={g.id} className="rail-resource">
+                          <button onClick={() => { setInput(g.prompt); setActivePanel('chats'); }}>
+                            <b>{g.kind}</b>
+                            <small>{(g.prompt || '').slice(0, 60)}</small>
+                          </button>
+                        </div>
+                      ))}
+                      {!generated.length && <small className="rail-empty">Nothing generated yet.</small>}
+                    </>
+                  )}
                 </div>
               )}
-              {(activePanel === 'skills' || activePanel === 'agents' || activePanel === 'plugins') && (
-                <div className="rail-library">
-                  {(features.filter((f) => f.kind === (activePanel === 'skills' ? 'skill' : activePanel === 'agents' ? 'agent' : 'plugin'))).map((f) => (
-                    <button key={f.id} onClick={() => void toggleFeature(f)} title={f.description}>
-                      <b>{f.name}</b>
-                      <small>{f.enabled ? 'enabled' : 'off'} · click to toggle</small>
-                    </button>
-                  ))}
-                  {!(features.filter((f) => f.kind === (activePanel === 'skills' ? 'skill' : activePanel === 'agents' ? 'agent' : 'plugin'))).length && <small className="rail-empty">Nothing in the catalog yet.</small>}
-                </div>
-              )}
-              {(activePanel === 'mcp' || activePanel === 'data') && (
+              {activePanel === 'mcp' && (
                 <div className="rail-library">
                   <div className="rail-add-row">
                     <input
-                      placeholder={activePanel === 'mcp' ? 'Connector name…' : 'Dataset name…'}
+                      placeholder="Connector name…"
                       value={assetQuery}
                       onChange={(e) => setAssetQuery(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') void saveConnector(); }}
                     />
                     <button className="rail-add" onClick={() => void saveConnector()} disabled={!assetQuery.trim() || assetSaving}>Add</button>
                   </div>
-                  {(typedAssets[activePanel === 'mcp' ? 'mcp_connector' : 'dataset'] || []).map((a) => (
+                  {(typedAssets['mcp_connector'] || []).map((a) => (
                     <button key={a.id} onClick={() => selectAsset(a)}>
                       <b>{a.name}</b>
                       <small>{a.asset_type.replaceAll('_', ' ')}{a.description ? ` · ${a.description.slice(0, 50)}` : ''}</small>
                     </button>
                   ))}
-                  {!(typedAssets[activePanel === 'mcp' ? 'mcp_connector' : 'dataset'] || []).length && <small className="rail-empty">Nothing here yet — add one above.</small>}
-                </div>
-              )}
-              {activePanel === 'code' && (
-                <div className="rail-library">
-                  <small className="rail-empty">Generated artifacts land here after image/code runs.</small>
-                  {generated.map((g) => (
-                    <div key={g.id} className="rail-resource">
-                      <button onClick={() => { setInput(g.prompt); setActivePanel('chats'); }}>
-                        <b>{g.kind}</b>
-                        <small>{(g.prompt || '').slice(0, 60)}</small>
-                      </button>
-                    </div>
-                  ))}
-                  {!generated.length && <small className="rail-empty">Nothing generated yet.</small>}
+                  {!(typedAssets['mcp_connector'] || []).length && <small className="rail-empty">Nothing here yet — add one above.</small>}
                 </div>
               )}
             </div>
@@ -829,7 +881,7 @@ export default function ChatPage() {
                   <b>Conversation memory</b>
                   <small>Context is scoped to this conversation.</small>
                 </div>
-                <button onClick={() => setActivePanel('memory')}>Open</button>
+                <button onClick={() => { panelAction('library'); setLibraryTab('memory'); }}>Open</button>
               </div>
             </section>
             <section className="context-section">
