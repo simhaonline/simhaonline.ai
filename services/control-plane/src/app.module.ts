@@ -6,6 +6,7 @@ import { AdminModule } from './admin/admin.module';
 import { ChatModule } from './chat/chat.module';
 import { BffModule } from './bff/bff.module';
 import { BillingModule } from './billing/billing.module';
+import { UsageModule } from './usage/usage.module';
 import { HealthController } from './health.controller';
 import { InternalOauthController } from './oauth/internal-oauth.controller';
 
@@ -18,6 +19,7 @@ import { InternalOauthController } from './oauth/internal-oauth.controller';
     ChatModule,
     BffModule,
     BillingModule,
+    UsageModule,
   ],
   controllers: [HealthController, InternalOauthController],
 })

@@ -15,7 +15,23 @@ export function middleware(request: NextRequest) {
     url.pathname = target;
     return NextResponse.rewrite(url);
   }
+
+  // Audit scaffold (2): gate /dashboard/* on the simha_session cookie.
+  // Unauthenticated requests redirect to /login; authenticated pass through.
+  // (Deep session validation still happens server-side per request —
+  // this is the fast edge gate.)
+  if (request.nextUrl.pathname.startsWith('/dashboard')) {
+    const token = request.cookies.get('simha_session')?.value;
+    if (!token) {
+      const login = new URL('/login', request.url);
+      login.searchParams.set('next', request.nextUrl.pathname);
+      return NextResponse.redirect(login);
+    }
+  }
+
   return NextResponse.next();
 }
 
-export const config = { matcher: ['/'] };
+export const config = {
+  matcher: ['/', '/dashboard/:path*'],
+};

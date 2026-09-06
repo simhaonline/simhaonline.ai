@@ -13,6 +13,8 @@ function controlPath(path: string[]): string[] {
   // audit v2 🔴: billing endpoints previously reached CP as /api/billing/…
   // (leading to 404s); the controller lives at /billing/*.
   if (path[0] === 'billing') return ['billing', ...path.slice(1)];
+  // Control Center v2 scaffold: /api/v1/* maps to the CP api/v1 controllers.
+  if (path[0] === 'v1') return ['api', 'v1', ...path.slice(1)];
   return path;
 }
 
