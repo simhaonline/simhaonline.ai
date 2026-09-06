@@ -45,6 +45,8 @@ export class WorkbenchStreamController {
    stream?: boolean;
    output_modality?: string;
    mode?: string;
+   aspect_ratio?: string;
+   duration_seconds?: number;
  },
   ) {
     const cookie = req.headers.cookie || '';
@@ -57,15 +59,18 @@ export class WorkbenchStreamController {
     if (!sess.length) return res.status(HttpStatus.UNAUTHORIZED).json({ error: 'Login required' });
     const userId = sess[0].user_id as number;
 
+    // standalone translator (DeepL-style pane) runs without a conversation —
+    // no persistence, just a pure translation round-trip.
     const conversationId = Number(body.conversation_id || 0);
-    if (!conversationId) return res.status(HttpStatus.BAD_REQUEST).json({ error: 'conversation_id required' });
-    const own = await this.pool.query(
-      `SELECT id FROM chat_history WHERE id = $1 AND user_id = $2`, [conversationId, userId]);
-    if (!own.rows.length) return res.status(HttpStatus.NOT_FOUND).json({ error: 'Conversation not found' });
+    if (conversationId) {
+      const own = await this.pool.query(
+        `SELECT id FROM chat_history WHERE id = $1 AND user_id = $2`, [conversationId, userId]);
+      if (!own.rows.length) return res.status(HttpStatus.NOT_FOUND).json({ error: 'Conversation not found' });
+    }
 
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const lastUser = [...messages].reverse().find((x) => x.role === 'user');
-    if (lastUser) {
+    if (lastUser && conversationId) {
       await this.pool.query(
         `INSERT INTO chat_messages(chat_id, role, content, model) VALUES ($1, 'user', $2, $3)`,
         [conversationId, lastUser.content, body.model || 'auto']);
@@ -113,6 +118,8 @@ export class WorkbenchStreamController {
         messages,
         stream: !isMedia,
         ...(isMedia ? { output_modality: effectiveMode } : {}),
+        ...(body.aspect_ratio ? { aspect_ratio: body.aspect_ratio } : {}),
+        ...(body.duration_seconds ? { duration_seconds: body.duration_seconds } : {}),
       }),
     });
     if (!upstream.ok || !upstream.body) {
@@ -121,7 +128,7 @@ export class WorkbenchStreamController {
     }
 
     const finalize = async () => {
-      if (!content.trim()) return;
+      if (!content.trim() || !conversationId) return;
       const { rows } = await this.pool.query(
         `INSERT INTO chat_messages(chat_id, role, content, model, tokens)
          VALUES ($1, 'assistant', $2, $3, $4) RETURNING id`,

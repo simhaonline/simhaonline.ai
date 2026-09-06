@@ -588,7 +588,9 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 				if kind != "" {
 					prompt := lastUserText(falData)
 					if prompt != "" {
-						url, usedKind, err := falGenerate(ctx, s.st.HTTPClient(), s.st.UpstreamAuthHeaders(ctx, acc), model, prompt, kind)
+						aspect, _ := falData["aspect_ratio"].(string)
+						duration := int(falData["duration_seconds"].(float64)) // 0 when absent
+						url, usedKind, err := falGenerate(ctx, s.st.HTTPClient(), s.st.UpstreamAuthHeaders(ctx, acc), model, prompt, kind, aspect, duration)
 						if err != nil {
 							log.Printf("[fal-media] %s: %v", acc.Name, err)
 							s.st.SetCooldown(ctx, acc.Name, 30)

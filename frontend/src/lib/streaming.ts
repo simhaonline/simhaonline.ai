@@ -22,6 +22,10 @@ export interface StreamOptions {
   mediaMode?: 'image' | 'video' | 'audio' | null;
   /** Work mode — sets the gateway task header (translate/code/vision…). */
   taskMode?: 'translate' | 'research' | 'code' | 'vision' | null;
+  /** aspect ratio for image/video generation (1:1, 9:16, 3:4, 4:3, 16:9) */
+  aspectRatio?: string | null;
+  /** video duration in seconds */
+  durationSeconds?: number | null;
 }
 
 export async function streamChat(
@@ -46,6 +50,8 @@ export async function streamChat(
       file_ids: fileIds,
       ...(opts.mediaMode ? { output_modality: opts.mediaMode, stream: false } : {}),
       ...(opts.taskMode ? { mode: opts.taskMode } : {}),
+      ...(opts.aspectRatio ? { aspect_ratio: opts.aspectRatio } : {}),
+      ...(opts.durationSeconds ? { duration_seconds: opts.durationSeconds } : {}),
       ...(opts.body || {}),
     }),
   });

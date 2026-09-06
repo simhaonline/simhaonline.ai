@@ -1,9 +1,10 @@
 'use client';
 
 // (7) components/chat/InputBar.tsx — ChatGPT-class composer: one outlined
-// rounded-3xl shell; textarea on top, tool row below (left: attach/tools/
-// voice/context · right: model picker, workspace, send/stop). No per-field
-// borders (globals resets fields inside .wb-root).
+// rounded-3xl shell; textarea on top, tool row below. Includes: real
+// per-message Tools menu (skills/agents/plugins toggles), media aspect
+// pickers (image 1:1/9:16/3:4/4:3/16:9, video 16:9/9:16 + duration),
+// DeepL-style translate handoff, voice, model picker, send/stop.
 
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Mic, Paperclip, Plus, Square } from 'lucide-react';
@@ -11,14 +12,21 @@ import { cn } from '@/lib/utils';
 import { wbApi } from '@/lib/wb-api';
 import { useChat } from '@/store/chat';
 import { ModelSelector } from './ModelSelector';
+import { TranslatePane } from './TranslatePane';
 
 export interface SendPayload {
   text: string;
   fileIds: string[];
   /** media generation mode: null = normal chat */
   mediaMode?: 'image' | 'video' | 'audio' | null;
+  /** aspect ratio for image/video generation */
+  aspectRatio?: string | null;
+  /** video duration in seconds */
+  durationSeconds?: number | null;
   /** work mode routed to the gateway task header */
   taskMode?: 'translate' | 'research' | 'code' | 'vision' | null;
+  /** per-message tools (enabled skills/agents/plugins chosen in the menu) */
+  tools?: string[];
 }
 
 const MEDIA_META = {
@@ -33,6 +41,10 @@ const TASK_META = {
   code: { icon: '⌨', label: 'Code', hint: 'Routed to code models' },
   vision: { icon: '👁', label: 'Vision', hint: 'Image understanding' },
 } as const;
+
+const IMAGE_RATIOS = ['1:1', '9:16', '3:4', '4:3', '16:9'] as const;
+const VIDEO_RATIOS = ['16:9', '9:16', '1:1'] as const;
+const VIDEO_DURATIONS = [5, 8, 10] as const;
 
 export function InputBar({
   onSend, onStop, streaming, disabled,
@@ -50,6 +62,10 @@ export function InputBar({
   const [mediaMode, setMediaMode] = useState<'image' | 'video' | 'audio' | null>(null);
   const [taskMode, setTaskMode] = useState<'translate' | 'research' | 'code' | 'vision' | null>(null);
   const [modesOpen, setModesOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<string>('1:1');
+  const [durationSeconds, setDurationSeconds] = useState<number>(5);
+  const [activeTools, setActiveTools] = useState<string[]>([]);
   const [visionArmed, setVisionArmed] = useState(false);
   const [notice, setNotice] = useState('');
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
@@ -76,6 +92,9 @@ export function InputBar({
       fileIds: files.map((f) => f.fileId),
       mediaMode,
       taskMode: hasImage && !taskMode ? 'vision' : taskMode,
+      aspectRatio: mediaMode === 'image' || mediaMode === 'video' ? aspectRatio : null,
+      durationSeconds: mediaMode === 'video' ? durationSeconds : null,
+      tools: activeTools.length ? activeTools : undefined,
     });
     setDraft('');
     setMediaMode(null);
@@ -148,6 +167,16 @@ export function InputBar({
 
   const toolBtn = 'grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer disabled:opacity-50';
 
+  // DeepL-style dual pane replaces the normal composer in translate mode
+  if (taskMode === 'translate') {
+    return (
+      <TranslatePane
+        onClose={() => setTaskMode(null)}
+        streaming={streaming}
+      />
+    );
+  }
+
   return (
     <div className="sticky bottom-0 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent pb-3 pt-2">
       <div className="mx-auto w-full max-w-3xl px-4">
@@ -185,7 +214,6 @@ export function InputBar({
             placeholder={mediaMode === 'image' ? 'Describe the image to generate…'
               : mediaMode === 'video' ? 'Describe the video to generate…'
               : mediaMode === 'audio' ? 'Describe the audio to generate…'
-              : taskMode === 'translate' ? 'Paste text + target language…'
               : taskMode === 'research' ? 'What should I research in depth?'
               : taskMode === 'code' ? 'Describe what to build, paste code, or share an error…'
               : taskMode === 'vision' ? 'Attach an image, then ask about it…'
@@ -207,12 +235,31 @@ export function InputBar({
               <button onClick={() => fileRef.current?.click()} disabled={uploading} title="Attach files" aria-label="Attach files" className={toolBtn}>
                 <Plus size={17} />
               </button>
-              <button
-                onClick={() => setNotice(enabledPlugins.length ? 'Toggle tools per-message from the Tools menu.' : 'Enable plugins under Integrations first.')}
-                title="Tools" aria-label="Tools" className={toolBtn}
-              >
-                <PuzzleGlyph />
-              </button>
+
+              {/* real per-message Tools menu */}
+              <span className="relative">
+                <button
+                  onClick={() => setToolsOpen((v) => !v)}
+                  aria-expanded={toolsOpen}
+                  aria-haspopup="menu"
+                  title="Tools — skills, agents, plugins for this message"
+                  className={cn(
+                    'flex items-center gap-1 rounded-lg px-2 py-1.5 text-[12px] cursor-pointer',
+                    activeTools.length ? 'bg-violet-500/15 text-violet-300' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100',
+                  )}
+                >
+                  ⌘{activeTools.length ? ` ${activeTools.length}` : ''}
+                </button>
+                {toolsOpen && (
+                  <ToolsMenu
+                    activeTools={activeTools}
+                    onToggle={(name) => setActiveTools((cur) =>
+                      cur.includes(name) ? cur.filter((t) => t !== name) : [...cur, name])}
+                    onClose={() => setToolsOpen(false)}
+                  />
+                )}
+              </span>
+
               <button
                 onClick={toggleVoice}
                 title="Voice input" aria-label="Voice input"
@@ -220,6 +267,7 @@ export function InputBar({
               >
                 <Mic size={16} />
               </button>
+
               {/* full mode menu — all workbench features */}
               <span className="relative">
                 <button
@@ -260,6 +308,54 @@ export function InputBar({
                   </>
                 )}
               </span>
+
+              {/* aspect ratio + duration pickers for media modes */}
+              {mediaMode === 'image' && (
+                <span className="ml-1 flex items-center gap-1">
+                  {IMAGE_RATIOS.map((r) => (
+                    <button
+                      key={r} onClick={() => setAspectRatio(r)} aria-pressed={aspectRatio === r}
+                      title={`Aspect ${r}`}
+                      className={cn(
+                        'rounded-md border px-1.5 py-0.5 font-mono text-[10px] cursor-pointer',
+                        aspectRatio === r ? 'border-violet-500 bg-violet-500/15 text-violet-300' : 'border-zinc-700 text-zinc-500 hover:text-zinc-200',
+                      )}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </span>
+              )}
+              {mediaMode === 'video' && (
+                <span className="ml-1 flex items-center gap-1">
+                  {VIDEO_RATIOS.map((r) => (
+                    <button
+                      key={r} onClick={() => setAspectRatio(r)} aria-pressed={aspectRatio === r}
+                      title={`Aspect ${r}`}
+                      className={cn(
+                        'rounded-md border px-1.5 py-0.5 font-mono text-[10px] cursor-pointer',
+                        aspectRatio === r ? 'border-violet-500 bg-violet-500/15 text-violet-300' : 'border-zinc-700 text-zinc-500 hover:text-zinc-200',
+                      )}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                  <span className="mx-0.5 h-4 w-px bg-zinc-700" aria-hidden />
+                  {VIDEO_DURATIONS.map((d) => (
+                    <button
+                      key={d} onClick={() => setDurationSeconds(d)} aria-pressed={durationSeconds === d}
+                      title={`${d} second video`}
+                      className={cn(
+                        'rounded-md border px-1.5 py-0.5 font-mono text-[10px] cursor-pointer',
+                        durationSeconds === d ? 'border-violet-500 bg-violet-500/15 text-violet-300' : 'border-zinc-700 text-zinc-500 hover:text-zinc-200',
+                      )}
+                    >
+                      {d}s
+                    </button>
+                  ))}
+                </span>
+              )}
+
               {activePersona && (
                 <span className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 py-1 pl-1.5 pr-2.5 text-[11px] text-violet-300">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: activePersona.color }} aria-hidden />
@@ -274,7 +370,7 @@ export function InputBar({
               <button
                 onClick={() => setNotice('Workspace scoping: pick a workspace in the sidebar footer.')}
                 title="Workspace scope" aria-label="Workspace scope"
-                className="hidden rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:border-zinc-500 cursor-pointer sm:block"
+                className="hidden rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:border-zinc-600 cursor-pointer sm:block"
               >
                 ◫ Workspace
               </button>
@@ -285,7 +381,7 @@ export function InputBar({
                   title="Stop generating"
                   className="grid h-9 w-9 place-items-center rounded-full bg-zinc-100 text-zinc-950 hover:bg-white cursor-pointer"
                 >
-                  <Square size={13} className="fill-current" />
+                  <span className="block h-3 w-3 rounded-[2px] bg-white" aria-hidden />
                 </button>
               ) : (
                 <button
@@ -293,7 +389,7 @@ export function InputBar({
                   disabled={!draft.trim() || disabled}
                   aria-label="Send message"
                   title="Send (Enter)"
-                  className="grid h-9 w-9 place-items-center rounded-full bg-violet-500 text-white transition-opacity hover:bg-violet-400 cursor-pointer disabled:opacity-30"
+                  className="grid h-9 w-9 place-items-center rounded-full bg-violet-500 text-white hover:bg-violet-400 cursor-pointer disabled:opacity-30"
                 >
                   <ArrowUp size={17} />
                 </button>
@@ -312,8 +408,73 @@ export function InputBar({
   );
 }
 
-function PuzzleGlyph() {
-  return <span className="text-[15px] leading-none" aria-hidden>⌘</span>;
+/** Real tools: skills + agents + plugins from the feature catalog. */
+function ToolsMenu({
+  activeTools, onClose, onToggle,
+}: {
+  activeTools: string[];
+  onClose: () => void;
+  onToggle: (name: string) => void;
+}) {
+  const [caps, setCaps] = useState<{
+    skills: Array<{ id: number; name: string; enabled: boolean }>;
+    agents: Array<{ id: number; name: string; enabled: boolean }>;
+    plugins: Array<{ id: number; name: string; enabled: boolean }>;
+  }>({ skills: [], agents: [], plugins: [] });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await wbApi.capabilities.list();
+        setCaps({ skills: d.skills || [], agents: d.agents || [], plugins: d.plugins || [] });
+      } catch { /* optional */ } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const groups: Array<[string, Array<{ id: number; name: string; enabled: boolean }>]> = [
+    ['Skills', caps.skills],
+    ['Agents', caps.agents],
+    ['Plugins', caps.plugins],
+  ];
+
+  return (
+    <>
+      <div className="fixed inset-0 z-30" onClick={onClose} />
+      <div className="absolute bottom-full left-0 z-40 mb-2 w-64 rounded-xl border border-zinc-700 bg-zinc-900 p-1.5 shadow-2xl" role="menu">
+        {loading && <p className="px-2.5 py-3 text-center text-[11px] text-zinc-500">Loading tools…</p>}
+        {!loading && groups.map(([label, items]) => (
+          <div key={label}>
+            {items.length > 0 && (
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-600">{label}</p>
+            )}
+            {items.map((t) => {
+              const active = activeTools.includes(t.name);
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => onToggle(t.name)}
+                  role="menuitemcheckbox"
+                  aria-checked={active}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] cursor-pointer',
+                    active ? 'bg-violet-500/15 text-violet-300' : 'text-zinc-200 hover:bg-zinc-800',
+                  )}
+                >
+                  <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', t.enabled ? 'bg-green-400' : 'bg-zinc-600')} aria-hidden />
+                  <b className="min-w-0 flex-1 truncate font-normal">{t.name}</b>
+                  {active && <span className="text-violet-400" aria-hidden>✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        {!loading && !caps.skills.length && !caps.agents.length && !caps.plugins.length && (
+          <p className="px-2.5 py-3 text-center text-[11px] text-zinc-500">No tools registered yet.</p>
+        )}
+      </div>
+    </>
+  );
 }
 
 function MenuRow({ icon, label, hint, active, onClick }: {

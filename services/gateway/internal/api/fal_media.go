@@ -16,9 +16,28 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// falImageSize maps an aspect ratio to flux's image_size enum.
+func falImageSize(aspect string) string {
+	switch aspect {
+	case "1:1":
+		return "square_hd"
+	case "9:16":
+		return "portrait_16_9"
+	case "3:4":
+		return "portrait_4_3"
+	case "4:3":
+		return "landscape_4_3"
+	case "16:9":
+		return "landscape_16_9"
+	default:
+		return ""
+	}
+}
 
 // isFalAccount mirrors the store's provider detection.
 func isFalAccount(providerName, baseURL string) bool {
@@ -78,11 +97,28 @@ func guessFalKind(model string) string {
 }
 
 // falGenerate performs the synchronous fal.run call and returns (url, mediaKind, err).
-func falGenerate(ctx context.Context, httpClient *http.Client, authHeaders map[string]string, model, prompt string, kind string) (string, string, error) {
+// aspect: "1:1"|"9:16"|"3:4"|"4:3"|"16:9"; durationSec applies to video models.
+func falGenerate(ctx context.Context, httpClient *http.Client, authHeaders map[string]string, model, prompt string, kind string, aspect string, durationSec int) (string, string, error) {
 	if kind == "" {
 		kind = guessFalKind(model)
 	}
 	payload := map[string]any{"prompt": prompt}
+	// fal parameter conventions: flux uses image_size ("square_hd",
+	// "portrait_16_9", "landscape_16_9", …); video models use aspect_ratio
+	// ("16:9"/"9:16"/"1:1") + duration ("5"/"10" or seconds int).
+	if aspect != "" {
+		switch kind {
+		case "image":
+			if size := falImageSize(aspect); size != "" {
+				payload["image_size"] = size
+			}
+		case "video":
+			payload["aspect_ratio"] = aspect
+			if durationSec > 0 {
+				payload["duration"] = strconv.Itoa(durationSec)
+			}
+		}
+	}
 	body, _ := json.Marshal(payload)
 
 	url := "https://fal.run/" + model
