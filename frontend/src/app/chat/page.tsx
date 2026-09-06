@@ -12,9 +12,9 @@ interface SavedResource { id: number; title: string; kind: string; content: stri
 interface GeneratedItem { id: number; kind: string; prompt: string; status: string; result_ref?: string | null; created_at: string; }
 
 const navGroups = [
-  { label: 'Workspace', items: [['chats', '⌁', 'Chats'], ['library', '▧', 'Asset Library'], ['memory', '◌', 'Memory']] },
-  { label: 'Build', items: [['skills', '✦', 'Skill Modules'], ['agents', '◈', 'Agent Profiles'], ['code', '</>', 'Code Studio']] },
-  { label: 'Connect', items: [['mcp', '⌘', 'MCP Connectors'], ['plugins', '⊞', 'Plugin Gallery'], ['data', '▦', 'Data Explorer']] },
+  { label: '', items: [['chats', '⌁', 'Chats'], ['library', '▧', 'Library'], ['memory', '◌', 'Memory']] },
+  { label: 'Tools', items: [['skills', '✦', 'Skills'], ['agents', '◈', 'Agents'], ['code', '</>', 'Code']] },
+  { label: 'Connections', items: [['mcp', '⌘', 'Integrations'], ['data', '▦', 'Data sources']] },
 ];
 
 // Platform-aware modifier glyph: ⌘ on Apple keyboards, Ctrl elsewhere.
@@ -22,19 +22,19 @@ const isApple = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navig
 const MOD = isApple ? '⌘' : 'Ctrl';
 
 const PANEL_LABELS: Record<string, string> = {
-  chats: 'Chats', library: 'Asset Library', memory: 'Memory', skills: 'Skill Modules',
-  agents: 'Agent Profiles', code: 'Code Studio', mcp: 'MCP Connectors',
-  plugins: 'Plugin Gallery', data: 'Data Explorer',
+  chats: 'Chats', library: 'Library', memory: 'Memory', skills: 'Skills',
+  agents: 'Agents', code: 'Code', mcp: 'Integrations',
+  plugins: 'Plugin Gallery', data: 'Data sources',
 };
 
 // Curated routing profiles — the single source of truth for model + route
-// selection. "Auto Route" is the default; the other profiles pin a routing
+// selection. "Auto (best model)" is the default; the other options pin a routing
 // mode on the gateway (X-Simha-Routing-Mode) without forcing a manual model.
 const ROUTE_PROFILES = [
-  { id: 'auto', label: 'Auto Route', mode: '', hint: 'Capability-aware selection across every provider' },
-  { id: 'quality', label: 'Quality Route', mode: 'quality', hint: 'Highest benchmarked quality first' },
-  { id: 'fast', label: 'Fast Route', mode: 'fast', hint: 'Lowest latency healthy route' },
-  { id: 'cost', label: 'Cost Route', mode: 'cost', hint: 'Lowest known cost per token' },
+  { id: 'auto', label: 'Auto (best model)', mode: '', hint: 'Automatically picks the best available model for your request' },
+  { id: 'quality', label: 'Best quality', mode: 'quality', hint: 'Always uses the highest-quality model' },
+  { id: 'fast', label: 'Fastest', mode: 'fast', hint: 'Optimizes for speed' },
+  { id: 'cost', label: 'Lowest cost', mode: 'cost', hint: 'Optimizes for the cheapest capable model' },
 ];
 
 // Curated model picker buckets. The raw catalog (often 1000+ names) is grouped
@@ -448,7 +448,7 @@ export default function ChatPage() {
       setRouteMode(id);
       setModel('auto');
       const p = ROUTE_PROFILES.find((x) => x.id === id) || ROUTE_PROFILES[0];
-      setNotice(`Routing profile: ${p.hint}`);
+      setNotice(p.hint);
     } else {
       setModel(option);
       setNotice(`Pinned model: ${option}`);
@@ -602,10 +602,15 @@ export default function ChatPage() {
         <main className="workbench-main">
           <header className="workbench-header">
             <div className="header-controls">
-              <button className={`header-action ${compare ? 'selected' : ''}`} onClick={() => setCompare(!compare)} aria-pressed={compare}>
-                ⇄ {compare ? 'Compare on' : 'Compare'}
+              <button
+                className={`header-action ${compare ? 'selected' : ''}`}
+                onClick={() => setCompare(!compare)}
+                aria-pressed={compare}
+                title="Ask 2–3 models the same question and compare answers side by side"
+              >
+                ⇄ {compare ? 'Comparing' : 'Compare models'}
               </button>
-              <button className="icon-button" onClick={() => setContextOpen(!contextOpen)} aria-label="Toggle context panel">◫</button>
+              <button className="icon-button" onClick={() => setContextOpen(!contextOpen)} aria-label="Toggle context panel" title="Workspace panel">◫</button>
             </div>
           </header>
 
@@ -621,14 +626,14 @@ export default function ChatPage() {
               <div className="workbench-empty">
                 <div className="workbench-mark">⌁</div>
                 <div className="empty-eyebrow">SIMHA WORKBENCH</div>
-                <h1>What are you working on?</h1>
-                <p>Route a question through your connected providers, reuse a trusted asset, or build a focused workflow.</p>
+                <h1>What can I help with?</h1>
+                <p>Ask anything — the best available model answers automatically.</p>
                 <div className="starter-grid">
                   <button onClick={() => setInput('Analyze this problem and propose a practical implementation plan.')}>
                     ◈ <span>Plan a solution<small>Break down a complex task</small></span>→
                   </button>
                   <button onClick={() => setInput('Review this code and suggest concrete improvements')}>
-                    <span>Review code<small>Concrete fixes and improvements</small></span>→
+                    ◈ <span>Review code<small>Concrete fixes and improvements</small></span>→
                   </button>
                   <button onClick={() => setInput('Summarize the key decisions and open questions from this context:')}>
                     ▤ <span>Summarize context<small>Turn detail into direction</small></span>→
@@ -691,7 +696,7 @@ export default function ChatPage() {
               />
               <div className="composer-bottom">
                 <div className="composer-tools">
-                  <button onClick={() => setNotice('Attachments open the Intake Dock (bottom-right).')} title="Attach files" aria-label="Attach files">＋</button>
+                  <button onClick={() => setNotice('Use the Upload button (bottom-right) to add files.')} title="Attach files" aria-label="Attach files">＋</button>
                   <button onClick={() => setNotice('Tools and connectors are managed in MCP Connectors.')} title="Tools and connectors" aria-label="Tools and connectors">⌘</button>
                   <button onClick={() => setNotice('Web search requires a configured search connector.')} title="Web search" aria-label="Web search">◎</button>
                   <button onClick={() => setNotice('Voice input requires a configured speech provider.')} title="Voice input" aria-label="Voice input">◉</button>
@@ -702,7 +707,8 @@ export default function ChatPage() {
                       onClick={() => setModelPickerOpen(!modelPickerOpen)}
                       aria-expanded={modelPickerOpen}
                       aria-haspopup="listbox"
-                      aria-label="Model and routing profile"
+                      aria-label="Choose model"
+                      title={model === 'auto' ? activeProfile.hint : model}
                     >
                       {model === 'auto'
                         ? <>✦ {activeProfile.label}</>
@@ -770,7 +776,7 @@ export default function ChatPage() {
                       </div>
                     )}
                   </div>
-                  <button className="active-chip" onClick={() => setContextOpen(true)} aria-label="Open workspace context">◫ Context</button>
+                  <button className="active-chip" onClick={() => setContextOpen(true)} aria-label="What the assistant knows about this conversation">◫ Workspace</button>
                   <span className="composer-hint">Enter to send · Shift+Enter for newline</span>
                 </div>
                 <button className="send-button" onClick={() => void send()} disabled={busy || !input.trim()} aria-label="Send message">
@@ -795,7 +801,7 @@ export default function ChatPage() {
               <button className="icon-button" onClick={() => setContextOpen(false)} aria-label="Close context panel">×</button>
             </div>
             <section className="context-section">
-              <div className="context-label">Routing profile</div>
+              <div className="context-label">Model choice</div>
               <div className="route-card">
                 <div>
                   <b>{activeProfile.label}</b>
@@ -852,9 +858,9 @@ export default function ChatPage() {
               <div className="command-group">
                 <small>Quick actions</small>
                 <button onClick={newChat}>＋ New conversation <kbd>{MOD === '⌘' ? 'N' : 'Ctrl+N'}</kbd></button>
-                <button onClick={() => { setActivePanel('library'); setCommandOpen(false); }}>▧ Open Simha Asset Library</button>
+                <button onClick={() => { setActivePanel('library'); setCommandOpen(false); }}>▧ Open Library</button>
                 <button onClick={() => { setContextOpen(true); setCommandOpen(false); }}>◫ Show workspace context</button>
-                <button onClick={() => { setModelPickerOpen(true); setCommandOpen(false); }}>✦ Change routing profile</button>
+                <button onClick={() => { setModelPickerOpen(true); setCommandOpen(false); }}>✦ Change model</button>
                 <button onClick={() => { setCompare(true); setCommandOpen(false); }}>⇄ Enable Compare mode</button>
               </div>
               <div className="command-foot">Esc to close · Commands operate on this workspace</div>

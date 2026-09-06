@@ -71,6 +71,12 @@ nav.topbar .links {
   font-size: 14px;
 }
 
+/* The hamburger exists for the marketing page's slide-down menu. On plain
+   app pages (login, verify, etc.) it renders as a stray dash — hide it
+   outside .marketing-page (audit UX fix). */
+.menu-toggle { display: none; }
+.marketing-page .menu-toggle { display: block; }
+
 .hero {
   padding: 72px 0 56px;
 }
