@@ -13,7 +13,7 @@ ENV NODE_ENV=production
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY --from=build /app/dist ./dist
-RUN addgroup -g 10002 cp && adduser -D -u 10002 -G cp cp
+RUN addgroup -g 10002 cp && adduser -D -u 10002 -G cp cp && mkdir -p /app/uploads && chown -R cp:cp /app/uploads
 USER cp
 EXPOSE 8081
 CMD ["node", "dist/main.js"]

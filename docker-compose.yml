@@ -41,6 +41,42 @@ services:
       retries: 10
     restart: unless-stopped
 
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: simha-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-simha-storage-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required — set a strong secret}
+    volumes:
+      - miniodata:/data
+    expose:
+      - "9000"
+      - "9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    container_name: simha-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      "mc alias set simha http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing simha/$${OBJECT_STORAGE_BUCKET} &&
+      mc anonymous set none simha/$${OBJECT_STORAGE_BUCKET}"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-simha-storage-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required — set a strong secret}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-simha-user-files}
+    restart: "no"
+
   gateway:
     build:
       context: ./services/gateway
@@ -80,6 +116,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8081
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://simhaonline.ai,https://chat.simhaonline.ai,https://platform.simhaonline.ai,https://docs.simhaonline.ai,https://status.simhaonline.ai}
       DATABASE_URL: postgres://${POSTGRES_USER:-simha}:${POSTGRES_PASSWORD:-simha_dev_password}@postgres:5432/${POSTGRES_DB:-simhaonline}
       VALKEY_URL: valkey://valkey:6379/1
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required — copy .env.example}
@@ -95,17 +132,28 @@ services:
       SMTP_FROM: ${SMTP_FROM:-no-reply@simhaonline.ai}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@simhaonline.ai}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      UPLOAD_DIR: /app/uploads
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-simha-user-files}
+      OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-simha-storage-admin}
+      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required — set a strong secret}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_SUCCESS_URL: ${NEXT_PUBLIC_SITE_URL:-https://simhaonline.ai}/dashboard?billing=success
       STRIPE_CANCEL_URL: ${NEXT_PUBLIC_SITE_URL:-https://simhaonline.ai}/pricing?billing=cancelled
     volumes:
       - ./config:/config:ro
+      - uploadsdata:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
       valkey:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     ports:
       - "${PROXY_BIND_IP:-152.53.67.111}:8081:8081"
     healthcheck:
@@ -129,8 +177,15 @@ services:
       STATUS_SNAPSHOT_INTERVAL: ${STATUS_SNAPSHOT_INTERVAL:-60}
       BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
       BACKUP_DIR: /backups
+      UPLOAD_DIR: /uploads
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-simha-user-files}
+      OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-simha-storage-admin}
+      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required — set a strong secret}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
     volumes:
       - ./backups:/backups
+      - uploadsdata:/uploads:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,8 +193,17 @@ services:
         condition: service_healthy
       gateway:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     ports:
       - "${PROXY_BIND_IP:-152.53.67.111}:8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   web:
@@ -159,6 +223,11 @@ services:
         condition: service_healthy
     ports:
       - "${PROXY_BIND_IP:-152.53.67.111}:3002:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 # NOTE: no edge/nginx service — Plesk's nginx is the front door.
@@ -171,3 +240,5 @@ services:
 volumes:
   pgdata:
   valkeydata:
+  uploadsdata:
+  miniodata:

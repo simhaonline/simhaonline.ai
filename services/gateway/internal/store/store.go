@@ -131,6 +131,42 @@ func (s *Store) RecordUsage(ctx context.Context, account, model string, status, 
 			(requested_at, account_name, model, status, prompt_tokens, completion_tokens, total_tokens, user_id, client_key_id)
 		VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8)`,
 		account, model, status, prompt, completion, total, userID, clientKeyID)
+	if err != nil {
+		return err
+	}
+	_, err = s.Pool.Exec(ctx, `
+		INSERT INTO token_usage(account_name, prompt_tokens, completion_tokens, total_tokens)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (account_name) DO UPDATE SET
+		prompt_tokens = token_usage.prompt_tokens + EXCLUDED.prompt_tokens,
+		completion_tokens = token_usage.completion_tokens + EXCLUDED.completion_tokens,
+		total_tokens = token_usage.total_tokens + EXCLUDED.total_tokens`,
+		account, prompt, completion, total)
+	if err != nil {
+		return err
+	}
+	_, err = s.Pool.Exec(ctx, `
+		INSERT INTO model_token_usage(model, prompt_tokens, completion_tokens, total_tokens)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (model) DO UPDATE SET
+		prompt_tokens = model_token_usage.prompt_tokens + EXCLUDED.prompt_tokens,
+		completion_tokens = model_token_usage.completion_tokens + EXCLUDED.completion_tokens,
+		total_tokens = model_token_usage.total_tokens + EXCLUDED.total_tokens`,
+		model, prompt, completion, total)
+	if err != nil {
+		return err
+	}
+	// Keep cost attribution additive and provider-specific. Unknown pricing is
+	// recorded as zero until an operator configures model_pricing; it is never
+	// guessed from a provider name.
+	_, err = s.Pool.Exec(ctx, `
+		INSERT INTO usage_cost_events
+			(user_id, client_key_id, model, prompt_tokens, completion_tokens, cost_usd)
+		SELECT $1, $2, $3, $4, $5,
+		       (($4::numeric / 1000000) * COALESCE(MIN(mp.input_cost_per_million), 0)) +
+		       (($5::numeric / 1000000) * COALESCE(MIN(mp.output_cost_per_million), 0))
+		FROM model_pricing mp
+		WHERE mp.model = $3`, userID, clientKeyID, model, prompt, completion)
 	return err
 }
 
@@ -153,6 +189,9 @@ func (s *Store) MaintenanceLoop(ctx context.Context) {
 			_, _ = s.Pool.Exec(ctx, `DELETE FROM sessions WHERE expires_at < now()`)
 			_, _ = s.Pool.Exec(ctx, `DELETE FROM oauth_states WHERE expires_at < now()`)
 			_, _ = s.Pool.Exec(ctx, `DELETE FROM oauth_authorization_sessions WHERE expires_at < now()`)
+			// Workbench dispatch keys are one-hour ephemeral credentials minted
+			// per chat request; without this purge they accumulate forever.
+			_, _ = s.Pool.Exec(ctx, `DELETE FROM client_api_keys WHERE expires_at IS NOT NULL AND expires_at < now() - interval '1 day'`)
 		}
 	}
 }

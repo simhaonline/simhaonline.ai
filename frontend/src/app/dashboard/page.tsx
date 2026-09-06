@@ -1,301 +1,76 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import TopBar from '@/components/TopBar';
 import PlanUsage from '@/components/PlanUsage';
 
-interface AccountRow {
-  name: string;
-  provider: string;
-  protocol: string;
-  api_prefix: string;
-  api_key: string;
-  limits: Record<string, { used: number; limit: number | null; percent: number }>;
-  cooldown_until: number;
-  tokens: { prompt: number; completion: number; total: number };
-}
+type View = 'overview' | 'accounts' | 'usage' | 'models' | 'provider-models' | 'routing' | 'providers' | 'limits' | 'observability' | 'activity' | 'keys' | 'oauth' | 'users' | 'reports' | 'docs' | 'settings';
+type Account = { name: string; base_url: string; provider: string; protocol: string; api_prefix: string; auth_mode?: string; oauth_token_file?: boolean; oauth_token_url?: boolean; oauth_client_id?: boolean; oauth_client_secret?: boolean; wildcard?: boolean; api_key: string; cooldown_until: number; limits: Record<string, { used: number; limit: number | null; percent: number }>; tokens: { prompt: number; completion: number; total: number } };
+type Overview = { accounts: Account[]; models: string[]; policies: Record<string, Record<string, unknown>>; model_tokens: Record<string, { prompt: number; completion: number; total: number }>; provider_catalog: Record<string, Array<{ id: string; name: string; protocol: string; auth: string; api_prefix: string; default_base_url?: string; verification_note?: string }>>; history: Array<{ timestamp: string; account: string; model: string; status: number; tokens: number; prompt_tokens?: number; completion_tokens?: number }>; auth?: { admin: boolean; role: string }; operator_scope?: string };
+type User = { id: number; email: string; role: string; active: boolean; created_at: string };
+type Report = { users: Array<User & { requests: number; input_tokens: number; output_tokens: number; total_tokens: number; last_request_at?: string }>; client_keys: Array<Record<string, unknown>>; audit_log: Array<Record<string, unknown>> };
+type Key = { id: number; name: string; key_prefix: string; active: boolean; created_at: string; last_used_at: string | null; request_count: number };
+type NoticeTone = 'success' | 'warning' | 'error';
+type ProviderModel = { account_name: string; provider: string; protocol: string; model: string; enabled: boolean; last_seen: string };
 
-interface KeyRow {
-  id: number;
-  name: string;
-  key_prefix: string;
-  active: boolean;
-  created_at: string;
-  last_used_at: string | null;
-  request_count: number;
-}
+const nav: Array<{ id: View; label: string; icon: string; section?: string; admin?: boolean }> = [
+  { id: 'overview', label: 'Overview', icon: '◈' }, { id: 'accounts', label: 'Upstream accounts', icon: '♢' }, { id: 'usage', label: 'Usage & analytics', icon: '▥' }, { id: 'models', label: 'Models', icon: '□' }, { id: 'provider-models', label: 'Provider models', icon: '◫', section: 'Model controls', admin: true },
+  { id: 'routing', label: 'Routing policies', icon: '⇄', section: 'Router controls', admin: true }, { id: 'providers', label: 'Provider catalog', icon: '◉', admin: true }, { id: 'limits', label: 'Budgets & limits', icon: '◫', admin: true },
+  { id: 'observability', label: 'Observability', icon: '◎', section: 'Operations' }, { id: 'activity', label: 'Request activity', icon: '≡' }, { id: 'keys', label: 'Client API keys', icon: '♙', section: 'Access' }, { id: 'oauth', label: 'OAuth & SSO', icon: '◎', section: 'Identity & access' },
+  { id: 'users', label: 'User management', icon: '♙', section: 'Administration', admin: true }, { id: 'reports', label: 'User reports', icon: '▥', admin: true }, { id: 'docs', label: 'Documentation', icon: '?', section: 'Help' }, { id: 'settings', label: 'Settings', icon: '⚙' },
+];
+const blank: Overview = { accounts: [], models: [], policies: {}, model_tokens: {}, provider_catalog: {}, history: [] };
+const fmt = (n: unknown) => Number(n || 0).toLocaleString();
+const when = (v?: string) => v ? new Date(v).toLocaleString() : 'Never';
 
-interface Overview {
-  accounts?: AccountRow[];
-  models?: string[];
-  history?: Array<{
-    timestamp: string;
-    account: string;
-    model: string;
-    status: number;
-    tokens: number;
-  }>;
-  auth?: { admin: boolean; role: string };
-  operator_scope?: string;
-}
+function Header({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) { return <div className="dash-head"><div><div className="kicker">{eyebrow}</div><h1>{title}</h1><p className="sub">{description}</p></div>{action && <div className="dash-actions">{action}</div>}</div>; }
+function Card({ title, meta, children }: { title?: string; meta?: string; children: React.ReactNode }) { return <section className="dash-card">{title && <div className="dash-card-head"><h2>{title}</h2>{meta && <span className="sub">{meta}</span>}</div>}{children}</section>; }
+function Metric({ label, value, detail }: { label: string; value: string | number; detail: string }) { return <div className="dash-metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>; }
+function Status({ tone = 'ok', children }: { tone?: 'ok' | 'warn' | 'bad'; children: React.ReactNode }) { return <span className={`dash-status ${tone}`}><i />{children}</span>; }
+function Empty({ text }: { text: string }) { return <div className="dash-empty">{text}</div>; }
+function Chart({ values }: { values: number[] }) { const max = Math.max(...values, 1); return <div className="dash-chart">{values.map((v, i) => <span key={i} className={i % 3 === 1 ? 'blue' : ''} style={{ height: `${Math.max(5, v / max * 100)}%` }} />)}</div>; }
 
 export default function DashboardPage() {
-  const [ov, setOv] = useState<Overview | null>(null);
-  const [keys, setKeys] = useState<KeyRow[]>([]);
-  const [authError, setAuthError] = useState(false);
-  const [newKeyName, setNewKeyName] = useState('');
-  const [createdKey, setCreatedKey] = useState('');
-  const [newAccount, setNewAccount] = useState({ name: '', base_url: '', api_key: '', provider: 'custom', protocol: 'openai', api_prefix: '/v1' });
+  const [view, setView] = useState<View>('overview'); const [ov, setOv] = useState<Overview>(blank); const [providerModels, setProviderModels] = useState<ProviderModel[]>([]); const [report, setReport] = useState<Report | null>(null); const [keys, setKeys] = useState<Key[]>([]); const [authError, setAuthError] = useState(false); const [loading, setLoading] = useState(true); const [search, setSearch] = useState(''); const [notice, setNotice] = useState(''); const [noticeTone, setNoticeTone] = useState<NoticeTone>('success');
+  const [form, setForm] = useState({ name: '', base_url: '', api_key: '', provider: 'custom', protocol: 'openai', api_prefix: '/v1', auth_mode: 'api_key', oauth_token_file: '', wildcard: false, rpm: 100, rpd: 10000, rpw: 70000 }); const [newKey, setNewKey] = useState<{ id: number; value: string } | null>(null); const [dark, setDark] = useState(true);
+  useEffect(() => { if (form.base_url) return; if (form.provider === 'huggingface') setForm((current) => ({ ...current, base_url: 'https://router.huggingface.co', api_prefix: '/v1', protocol: 'openai' })); if (form.provider === 'fal') setForm((current) => ({ ...current, base_url: 'https://fal.run', api_prefix: '', protocol: 'openai' })); }, [form.provider, form.base_url]);
+  const [testing, setTesting] = useState<string | null>(null); const [testResults, setTestResults] = useState<Record<string, { ok: boolean; status: string; message: string; latency_ms?: number; model_count?: number }>>({});
+  const load = useCallback(async () => { setLoading(true); try { const r = await fetch('/api/admin/overview'); if (r.status === 401) { setAuthError(true); return; } if (!r.ok) throw new Error(); setOv(await r.json()); const k = await fetch('/api/client-keys'); if (k.ok) setKeys((await k.json()).keys || []); } catch { setNotice('Dashboard data could not be loaded.'); } finally { setLoading(false); } }, []);
+  const loadReport = useCallback(async () => { const r = await fetch('/api/admin/user-reports'); if (r.ok) setReport(await r.json()); }, []);
+  useEffect(() => { load(); }, [load]); useEffect(() => { if (view === 'users' || view === 'reports') loadReport(); if (view === 'provider-models') fetch('/api/admin/provider-models').then((r) => r.ok ? r.json() : { models: [] }).then((d) => setProviderModels(d.models || [])); }, [view, loadReport]);
+  if (authError) return <><TopBar /><main className="container dash-auth"><h1>Sign in required</h1><p className="sub">The control center is available to authenticated operators and administrators.</p><a className="btn primary" href="/login">Sign in</a></main></>;
+  const admin = ov.auth?.admin === true || ov.auth?.role === 'admin'; const visible = nav.filter((x) => admin ? true : ['models', 'keys', 'oauth', 'docs', 'settings'].includes(x.id)); const go = (v: View) => { setView(v); setNotice(''); window.scrollTo({ top: 0, behavior: 'smooth' }); }; const totals = useMemo(() => ({ req: ov.history.length, tok: ov.history.reduce((n, h) => n + Number(h.tokens || 0), 0), healthy: ov.accounts.filter((a) => a.cooldown_until <= Date.now() / 1000 && Math.max(a.limits.day?.percent || 0, a.limits.week?.percent || 0) < 90).length }), [ov]);
+  async function refresh() { await fetch('/api/admin/models/refresh', { method: 'POST' }); setNotice('Model discovery started.'); setTimeout(load, 800); }
+  async function saveAccount(e: React.FormEvent) { e.preventDefault(); const body = { ...form, limits: { rpm: Number(form.rpm), rpd: Number(form.rpd), rpw: Number(form.rpw) } }; const r = await fetch('/api/admin/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const d = await r.json().catch(() => ({})); setNoticeTone(r.ok ? 'success' : 'error'); setNotice(r.ok ? 'Upstream saved. Model discovery started; refresh will appear when the provider responds.' : d.error || 'Unable to save upstream.'); if (r.ok) { setForm({ ...form, name: '', base_url: '', api_key: '' }); load(); setTimeout(load, 4000); } }
+  function editAccount(a: Account) { setForm({ name: a.name, base_url: a.base_url, api_key: '', provider: a.provider, protocol: a.protocol, api_prefix: a.api_prefix, auth_mode: a.auth_mode || 'api_key', oauth_token_file: '', wildcard: Boolean(a.wildcard), rpm: a.limits.minute?.limit || 0, rpd: a.limits.day?.limit || 0, rpw: a.limits.week?.limit || 0 }); go('accounts'); }
+  async function deleteAccount(name: string) { if (!window.confirm(`Delete upstream account “${name}”?`)) return; const r = await fetch(`/api/admin/accounts/${encodeURIComponent(name)}`, { method: 'DELETE' }); setNotice(r.ok ? 'Account deleted.' : 'Unable to delete account.'); if (r.ok) load(); }
+  async function testAccount(name: string) { setTesting(name); setNoticeTone('warning'); setNotice(`Testing ${name}…`); setTestResults((x) => ({ ...x, [name]: { ok: false, status: 'testing', message: 'Checking provider endpoint and configured limits…' } })); try { const r = await fetch(`/api/admin/accounts/${encodeURIComponent(name)}/test`, { method: 'POST' }); const d = await r.json().catch(() => ({})); const result = { ok: Boolean(d.ok), status: d.status || 'failed', message: d.message || d.error || 'Provider test failed.', latency_ms: d.latency_ms, model_count: d.model_count }; setTestResults((x) => ({ ...x, [name]: result })); setNoticeTone(result.ok ? 'success' : result.status === 'oauth_pending' ? 'warning' : 'error'); setNotice(result.ok ? `${name} verified successfully${result.model_count ? ` · ${result.model_count} models found` : ''}.` : `${name}: ${result.message}`); } catch { setNoticeTone('error'); setNotice(`Could not test ${name}. The control center could not reach the verification service.`); setTestResults((x) => ({ ...x, [name]: { ok: false, status: 'unreachable', message: 'Control center could not run the provider test.' } })); } finally { setTesting(null); } }
+  async function revokeKey(id: number) { const r = await fetch(`/api/client-keys/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: false }) }); if (r.ok) setKeys((x) => x.map((k) => k.id === id ? { ...k, active: false } : k)); }
+  async function deleteKey(id: number) { if (!window.confirm('Delete this API key permanently?')) return; const r = await fetch(`/api/client-keys/${id}`, { method: 'DELETE' }); if (r.ok) setKeys((x) => x.filter((k) => k.id !== id)); }
+  async function copyNewKey() { if (!newKey) return; try { await navigator.clipboard.writeText(newKey.value); setNoticeTone('success'); setNotice('API key copied to your clipboard.'); } catch { setNoticeTone('warning'); setNotice('Clipboard access was blocked. Select and copy the key manually.'); } }
+  async function logout() { await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined); window.location.href = 'https://simhaonline.ai/'; }
+  async function updateUser(id: number, body: Record<string, unknown>) { const r = await fetch(`/api/admin/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); if (r.ok) loadReport(); }
+  async function deleteUser(id: number, email: string) { if (!window.confirm(`Delete ${email}? Their sessions will end and owned keys will be revoked.`)) return; const r = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' }); if (r.ok) loadReport(); }
+  async function resetPassword(id: number) { const password = window.prompt('New password (minimum 10 characters):'); if (!password) return; const r = await fetch(`/api/admin/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); setNotice(r.ok ? 'Password updated.' : 'Unable to update password.'); }
 
-  const load = useCallback(async () => {
-    const r = await fetch('/api/admin/overview');
-    if (r.status === 401) {
-      setAuthError(true);
-      return;
-    }
-    setOv(await r.json());
-    const k = await fetch('/api/client-keys');
-    if (k.ok) setKeys((await k.json()).keys || []);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function createKey() {
-    if (!newKeyName.trim()) return;
-    const r = await fetch('/api/client-keys', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newKeyName.trim() }),
-    });
-    if (!r.ok) return;
-    const d = await r.json();
-    setCreatedKey(d.key);
-    setNewKeyName('');
-    const k = await fetch('/api/client-keys');
-    if (k.ok) setKeys((await k.json()).keys || []);
-  }
-
-  async function revokeKey(id: number) {
-    await fetch(`/api/client-keys/${id}`, { method: 'DELETE' });
-    setKeys((ks) => ks.map((k) => (k.id === id ? { ...k, active: false } : k)));
-  }
-
-  async function addAccount() {
-    const r = await fetch('/api/admin/accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newAccount),
-    });
-    if (r.ok) {
-      setNewAccount({ name: '', base_url: '', api_key: '', provider: 'custom', protocol: 'openai', api_prefix: '/v1' });
-      load();
-    }
-  }
-
-  async function refreshModels() {
-    await fetch('/api/admin/models/refresh', { method: 'POST' });
-  }
-
-  if (authError) {
-    return (
-      <>
-        <TopBar />
-        <main className="container" style={{ paddingTop: 80, textAlign: 'center' }}>
-          <h1 style={{ fontSize: 26 }}>Sign in required</h1>
-          <p className="sub" style={{ margin: '12px auto 24px' }}>
-            The dashboard shows your keys, usage and (for admins) provider accounts.
-          </p>
-          <a className="btn primary" href="/login">
-            Sign in
-          </a>
-        </main>
-      </>
-    );
-  }
-
-  const isAdmin = ov?.auth?.admin === true;
-
-  return (
-    <>
-      <TopBar />
-      <main className="container">
-        <section style={{ padding: '32px 0 8px' }}>
-          <div className="kicker">Dashboard</div>
-          <h1 style={{ fontSize: 28, margin: '0 0 6px' }}>
-            {isAdmin ? 'Administrator console' : 'Operator console'}
-          </h1>
-          {ov?.operator_scope === 'models_only' && (
-            <p className="sub">Operator view: model catalog only.</p>
-          )}
-        </section>
-
-        {isAdmin && (
-          <section>
-            <div className="card" style={{ marginBottom: 18 }}>
-              <h3>Provider accounts</h3>
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Provider</th>
-                    <th>Key</th>
-                    <th>Min %</th>
-                    <th>Day %</th>
-                    <th>Week %</th>
-                    <th>Cooling</th>
-                    <th>Tokens</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(ov?.accounts || []).map((a) => (
-                    <tr key={a.name}>
-                      <td>{a.name}</td>
-                      <td>
-                        {a.provider}/{a.protocol}
-                      </td>
-                      <td>{a.api_key}</td>
-                      <td>{a.limits?.minute?.percent ?? 0}%</td>
-                      <td>{a.limits?.day?.percent ?? 0}%</td>
-                      <td>{a.limits?.week?.percent ?? 0}%</td>
-                      <td>
-                        {a.cooldown_until > Date.now() / 1000 ? (
-                          <span className="pill err">cooling</span>
-                        ) : (
-                          <span className="pill ok">ready</span>
-                        )}
-                      </td>
-                      <td>{(a.tokens?.total || 0).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!ov?.accounts?.length && <p className="sub">No accounts configured yet.</p>}
-            </div>
-
-            <div className="grid cols-2" style={{ marginBottom: 18 }}>
-              <div className="card">
-                <h3>Add provider account</h3>
-                <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
-                  <input placeholder="name" value={newAccount.name} onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })} />
-                  <input placeholder="base_url (https://…)" value={newAccount.base_url} onChange={(e) => setNewAccount({ ...newAccount, base_url: e.target.value })} />
-                  <input placeholder="api_key" value={newAccount.api_key} onChange={(e) => setNewAccount({ ...newAccount, api_key: e.target.value })} />
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <input placeholder="provider" value={newAccount.provider} onChange={(e) => setNewAccount({ ...newAccount, provider: e.target.value })} />
-                    <input placeholder="protocol" value={newAccount.protocol} onChange={(e) => setNewAccount({ ...newAccount, protocol: e.target.value })} />
-                    <input placeholder="api_prefix" value={newAccount.api_prefix} onChange={(e) => setNewAccount({ ...newAccount, api_prefix: e.target.value })} />
-                  </div>
-                  <button className="btn primary" onClick={addAccount}>
-                    Save account
-                  </button>
-                </div>
-              </div>
-              <div className="card">
-                <h3>Model catalog</h3>
-                <button className="btn" style={{ marginBottom: 12 }} onClick={refreshModels}>
-                  Refresh discovery
-                </button>
-                <div style={{ maxHeight: 220, overflowY: 'auto', fontSize: 13, color: 'var(--muted)' }}>
-                  {(ov?.models || []).map((m) => (
-                    <div key={m} style={{ padding: '2px 0' }}>
-                      {m}
-                    </div>
-                  ))}
-                  {!ov?.models?.length && <p className="sub">No models discovered yet.</p>}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        <section style={{ paddingBottom: 8 }}>
-          <PlanUsage />
-        </section>
-
-        <section style={{ paddingBottom: 60 }}>
-          <div className="card" style={{ marginBottom: 18 }}>
-            <h3>Client API keys</h3>
-            <div style={{ display: 'flex', gap: 10, margin: '12px 0' }}>
-              <input
-                placeholder="key name (e.g. my-laptop)"
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-                style={{ maxWidth: 320 }}
-              />
-              <button className="btn primary" onClick={createKey}>
-                Create key
-              </button>
-            </div>
-            {createdKey && (
-              <pre className="code" style={{ color: 'var(--ok)' }}>
-                {createdKey}
-{'\n'}Copy this key now — it will not be shown again.
-              </pre>
-            )}
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Prefix</th>
-                  <th>Status</th>
-                  <th>Requests</th>
-                  <th>Last used</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {keys.map((k) => (
-                  <tr key={k.id}>
-                    <td>{k.name}</td>
-                    <td>{k.key_prefix}…</td>
-                    <td>
-                      {k.active ? <span className="pill ok">active</span> : <span className="pill err">revoked</span>}
-                    </td>
-                    <td>{k.request_count}</td>
-                    <td>{k.last_used_at ? new Date(k.last_used_at + 'Z').toLocaleString() : 'never'}</td>
-                    <td>
-                      {k.active && (
-                        <button className="btn" onClick={() => revokeKey(k.id)}>
-                          Revoke
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!keys.length && <p className="sub">No client keys yet — create one above.</p>}
-          </div>
-
-          <div className="card">
-            <h3>Recent requests</h3>
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Account</th>
-                  <th>Model</th>
-                  <th>Status</th>
-                  <th>Tokens</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(ov?.history || []).slice(0, 20).map((h, i) => (
-                  <tr key={i}>
-                    <td>{new Date(h.timestamp + 'Z').toLocaleString()}</td>
-                    <td>{h.account}</td>
-                    <td>{h.model}</td>
-                    <td>{h.status}</td>
-                    <td>{h.tokens}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!ov?.history?.length && <p className="sub">No requests recorded yet.</p>}
-          </div>
-        </section>
-      </main>
-    </>
-  );
+  function overview() { const bars = Array.from({ length: 14 }, (_, i) => ov.history.slice(i * Math.ceil(Math.max(ov.history.length, 1) / 14), (i + 1) * Math.ceil(Math.max(ov.history.length, 1) / 14)).length); return <><Header eyebrow="Operations" title="Router overview" description="Live capacity, provider connectivity, usage, and model availability." action={<><button className="btn" onClick={() => go('activity')}>View activity</button><button className="btn primary" onClick={() => go('accounts')}>＋ Add account</button></>} /><div className="dash-metrics"><Metric label="Requests tracked" value={fmt(totals.req)} detail="Recent telemetry" /><Metric label="Tokens tracked" value={fmt(totals.tok)} detail="Input + output" /><Metric label="Available models" value={fmt(ov.models.length)} detail="Across providers" /><Metric label="Routing capacity" value={`${totals.healthy}/${ov.accounts.length}`} detail="No cooldown or local limit block" /></div><div className="dash-grid"><Card title="Request activity" meta="Recent events"><div className="dash-card-body"><Chart values={bars} /><div className="dash-legend"><span><i />Requests routed</span><span><i className="blue" />Token volume</span></div></div></Card><Card title="Budget posture" meta="Day / week"><div className="dash-card-body">{ov.accounts.length ? ov.accounts.slice(0, 6).map((a) => { const p = Math.max(a.limits.day?.percent || 0, a.limits.week?.percent || 0); return <div className="budget-row" key={a.name}><div><b>{a.name}</b><span>{p}%</span></div><div className="dash-progress"><i style={{ width: `${Math.min(p, 100)}%` }} /></div><small>Day {fmt(a.limits.day?.used)} / {fmt(a.limits.day?.limit)} · Week {fmt(a.limits.week?.used)} / {fmt(a.limits.week?.limit)}</small></div>; }) : <Empty text="No upstream accounts configured." />}</div></Card></div><div className="dash-grid"><Card title="Account health" meta={`${ov.accounts.length} accounts`}><AccountTable accounts={ov.accounts.slice(0, 6)} onEdit={editAccount} onDelete={deleteAccount} /></Card><Card title="Model inventory" meta={`${ov.models.length} models`}><ModelTable models={ov.models.slice(0, 8)} tokens={ov.model_tokens} /></Card></div></>; }
+  function accounts() { const providerOptions = Object.values(ov.provider_catalog || {}).flat(); return <><Header eyebrow="Control center / Upstream accounts" title="Connect your model providers" description="Save a provider, test its API immediately, then refresh models when it is verified." action={<><button className="btn" onClick={refresh}>↻ Refresh models</button><button className="btn primary" onClick={() => document.getElementById('account-form')?.scrollIntoView({ behavior: 'smooth' })}>＋ Add upstream</button></>} /><div className="dash-account-layout"><Card title={form.name ? `Edit ${form.name}` : '1. Add an upstream'} meta="Credentials are stored server-side"><form id="account-form" className="dash-form" onSubmit={saveAccount}><div className="dash-form-intro"><span className="dash-step">01</span><div><b>Connection details</b><small>Choose a preset to fill the correct protocol and API path.</small></div></div><div className="dash-form-grid"><label>Provider<select value={form.provider} onChange={(e) => { const p = providerOptions.find((x) => x.id === e.target.value); setForm({ ...form, provider: e.target.value, protocol: p?.protocol || form.protocol, api_prefix: p?.api_prefix || form.api_prefix }); }}><option value="custom">Custom provider</option>{providerOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label>Connection name<input required placeholder="e.g. production-openai" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label><label className="full">Base URL<input required placeholder="https://api.openai.com" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} /><small>Do not include the API path; the selected preset supplies it.</small></label><label>Protocol<select value={form.protocol} onChange={(e) => setForm({ ...form, protocol: e.target.value })}><option value="openai">OpenAI-compatible</option><option value="anthropic">Anthropic Messages</option><option value="ollama">Ollama native</option></select></label><label>API path<input value={form.api_prefix} onChange={(e) => setForm({ ...form, api_prefix: e.target.value })} /></label><label className="full">API key<input type="password" placeholder={form.name ? 'Leave blank to keep current key' : 'sk-…'} value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} /><small>Never shown after saving.</small></label><label>Auth mode<select value={form.auth_mode} onChange={(e) => setForm({ ...form, auth_mode: e.target.value })}><option value="api_key">API key</option><option value="oauth2">OAuth2 token file</option></select></label>{form.auth_mode === 'oauth2' && <label>OAuth token file<input value={form.oauth_token_file} placeholder="/srv/.../provider.json" onChange={(e) => setForm({ ...form, oauth_token_file: e.target.value })} /></label>}<label>Requests / minute<input type="number" value={form.rpm} onChange={(e) => setForm({ ...form, rpm: Number(e.target.value) })} /></label><label>Requests / day<input type="number" value={form.rpd} onChange={(e) => setForm({ ...form, rpd: Number(e.target.value) })} /></label><label>Requests / week<input type="number" value={form.rpw} onChange={(e) => setForm({ ...form, rpw: Number(e.target.value) })} /></label><label className="check"><input type="checkbox" checked={form.wildcard} onChange={(e) => setForm({ ...form, wildcard: e.target.checked })} /> Serve any requested model</label></div><div className="dash-form-actions"><button className="btn" type="button" onClick={() => setForm({ ...form, name: '', base_url: '', api_key: '', oauth_token_file: '' })}>Clear</button><button className="btn primary">{form.name ? 'Save changes' : 'Save upstream'}</button></div></form></Card><Card title="How verification works" meta="2. Test · 3. Discover"><div className="dash-card-body dash-checklist"><div><span className="dash-step">02</span><p><b>Test connection</b><small>Simha checks the provider model endpoint and reports HTTP status, latency, and model count.</small></p></div><div><span className="dash-step">03</span><p><b>Refresh models</b><small>After a successful test, refresh discovery so models become available to routing and Chat.</small></p></div><div className="dash-tip">For Anthropic, use the provider base URL and select the Anthropic preset. Simha sends the required <code>x-api-key</code> and version headers.</div></div></Card></div><Card title="Configured upstreams" meta={`${ov.accounts.length} saved · API keys masked`}><AccountTable accounts={ov.accounts} onEdit={editAccount} onDelete={deleteAccount} onTest={testAccount} testing={testing} testResults={testResults} /></Card></>; }
+  function usage() { const p = ov.history.reduce((n, h) => n + Number(h.prompt_tokens || 0), 0); const c = ov.history.reduce((n, h) => n + Number(h.completion_tokens || 0), 0); return <><Header eyebrow="Analytics" title="Usage & analytics" description="Token economics and budget consumption across the router." action={<button className="btn" onClick={load}>↻ Refresh</button>} /><div className="dash-metrics"><Metric label="Total tokens" value={fmt(totals.tok)} detail="Prompt + completion" /><Metric label="Input / prompt" value={fmt(p)} detail="Upstream usage" /><Metric label="Output / completion" value={fmt(c)} detail="Upstream usage" /><Metric label="Request events" value={fmt(ov.history.length)} detail="Privacy-safe metadata" /></div><div className="dash-grid"><Card title="Token volume trend"><div className="dash-card-body"><Chart values={ov.history.slice(0, 30).map((x) => Number(x.tokens || 1)).reverse()} /></div></Card><Card title="Usage by model"><ModelTable models={Object.keys(ov.model_tokens)} tokens={ov.model_tokens} /></Card></div><Card title="Usage by account"><AccountTable accounts={ov.accounts} onEdit={editAccount} onDelete={deleteAccount} /></Card></>; }
+  function models() { const list = ov.models.filter((m) => m.toLowerCase().includes(search.toLowerCase())); return <><Header eyebrow="Inventory" title="Models" description="Discovered models with token visibility and refresh control." action={<button className="btn primary" onClick={refresh}>↻ Refresh models</button>} /><Card><div className="dash-toolbar"><input placeholder="Search models…" value={search} onChange={(e) => setSearch(e.target.value)} /><span className="sub">{list.length} discovered</span></div><ModelTable models={list} tokens={ov.model_tokens} /></Card></>; }
+  function providerModelView() { const groups = providerModels.reduce<Record<string, ProviderModel[]>>((out, item) => { (out[item.account_name] ||= []).push(item); return out; }, {}); async function toggle(item: ProviderModel) { const r = await fetch('/api/admin/provider-models', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account_name: item.account_name, model: item.model, enabled: !item.enabled }) }); if (r.ok) { setProviderModels((items) => items.map((x) => x.account_name === item.account_name && x.model === item.model ? { ...x, enabled: !x.enabled } : x)); setNoticeTone('success'); setNotice(`${item.model} ${item.enabled ? 'disabled' : 'enabled'} for ${item.account_name}. Routing is updating.`); } else { setNoticeTone('error'); setNotice('Unable to update provider model.'); } } return <><Header eyebrow="Model controls" title="Provider models" description="Review every provider separately and control duplicate model names before they enter routing or Chat." action={<button className="btn" onClick={() => { refresh(); setTimeout(() => fetch('/api/admin/provider-models').then((r) => r.json()).then((d) => setProviderModels(d.models || [])), 2500); }}>↻ Rediscover models</button>} />{Object.entries(groups).map(([account, items]) => <Card key={account} title={account} meta={`${items[0]?.provider} · ${items.length} models · last seen ${when(items[0]?.last_seen)}`}><div className="provider-model-grid">{items.map((item) => <div className={`provider-model-row ${item.enabled ? '' : 'disabled'}`} key={`${item.account_name}:${item.model}`}><div><b className="mono">{item.model}</b><small>{item.enabled ? 'Included in routing and Chat' : 'Excluded from routing and Chat'}</small></div><button className={`dash-switch ${item.enabled ? 'on' : ''}`} aria-label={`${item.enabled ? 'Disable' : 'Enable'} ${item.model}`} aria-pressed={item.enabled} onClick={() => toggle(item)}><i /></button></div>)}</div></Card>)}{!providerModels.length && <Card><Empty text="No discovered provider models yet. Add an upstream and run discovery." /></Card>}</>; }
+  function providers() { return <><Header eyebrow="Catalog" title="Provider catalog" description="Verified templates for compatible model providers." /><div className="dash-grid">{Object.entries(ov.provider_catalog || {}).map(([group, items]) => <Card key={group} title={group.replaceAll('_', ' ')} meta={`${items.length} templates`}><div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>Provider</th><th>Protocol</th><th>Auth</th><th>API path</th><th /></tr></thead><tbody>{items.map((p) => <tr key={p.id}><td><b>{p.name}</b><small>{p.id}</small></td><td>{p.protocol}</td><td>{p.auth}</td><td className="mono">{p.api_prefix}</td><td><button className="btn" onClick={() => { setForm({ ...form, provider: p.id, protocol: p.protocol, api_prefix: p.api_prefix }); go('accounts'); }}>Connect</button></td></tr>)}</tbody></table></div></Card>)}</div></>; }
+  function controls(title: string, description: string, items: string[]) { return <><Header eyebrow="Router controls" title={title} description={description} action={<button className="btn primary" onClick={() => setNotice('Preferences saved locally.')}>Save changes</button>} /><Card><div className="dash-settings">{items.map((x) => <div className="dash-setting" key={x}><div><b>{x}</b><small>Configured for safe, budget-aware routing.</small></div><button className="dash-switch on" onClick={(e) => e.currentTarget.classList.toggle('on')}><i /></button></div>)}</div></Card></>; }
+  function observability() { return <><Header eyebrow="Operations" title="Observability" description="Monitor health, discovery, cooldowns, and privacy-safe metadata." action={<button className="btn" onClick={load}>↻ Refresh</button>} /><div className="dash-metrics"><Metric label="Service health" value="Healthy" detail={`${ov.accounts.length} accounts loaded`} /><Metric label="Model refresh" value="OK" detail="Automatic discovery" /><Metric label="Active cooldowns" value={fmt(ov.accounts.filter((a) => a.cooldown_until > Date.now() / 1000).length)} detail="Auto excluded" /><Metric label="History events" value={fmt(ov.history.length)} detail="No prompt content logged" /></div><div className="dash-grid"><Card title="Discovery status"><div className="dash-card-body"><Status>Gateway healthy</Status><p className="sub">The worker refreshes provider models automatically.</p></div></Card><Card title="Privacy controls"><div className="dash-settings">{['Mask provider credentials', 'Avoid prompt logging', 'Concise upstream errors'].map((x) => <div className="dash-setting" key={x}><b>{x}</b><Status>Enabled</Status></div>)}</div></Card></div></>; }
+  function activity() { return <><Header eyebrow="Operations" title="Request activity" description="Recent routing events and token accounting." action={<button className="btn" onClick={load}>↻ Refresh</button>} /><Card><div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>Time</th><th>Account</th><th>Model</th><th>Status</th><th>Tokens</th></tr></thead><tbody>{ov.history.map((h, i) => <tr key={i}><td>{when(h.timestamp)}</td><td>{h.account || '—'}</td><td className="mono">{h.model || '—'}</td><td><Status tone={h.status >= 400 ? 'bad' : 'ok'}>{h.status}</Status></td><td>{fmt(h.tokens)}</td></tr>)}</tbody></table></div>{!ov.history.length && <Empty text="No request events yet." />}</Card></>; }
+  function keyView() { return <><Header eyebrow="Access" title="Client API keys" description="Create, revoke, and permanently delete router credentials." /><Card title="Managed client credentials"><div className="dash-key-create"><input id="key-name" placeholder="Key name (e.g. production-agent)" /><button className="btn primary" onClick={async () => { const i = document.getElementById('key-name') as HTMLInputElement; if (!i.value.trim()) return; const r = await fetch('/api/client-keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: i.value.trim() }) }); if (r.ok) { const d = await r.json(); setNewKey({ id: Number(d.id), value: String(d.key) }); setNoticeTone('warning'); setNotice('New key created. Copy it now; it cannot be shown again.'); i.value = ''; const k = await fetch('/api/client-keys'); if (k.ok) setKeys((await k.json()).keys || []); } else { const d = await r.json().catch(() => ({})); setNoticeTone('error'); setNotice(d.error || 'Unable to create API key.'); } }}>Create key</button></div>{newKey && <div className="dash-new-key" role="status"><div><b>New key · ID {newKey.id}</b><small>Shown once for security. Copy it before leaving this page.</small></div><code>{newKey.value}</code><button className="btn primary" onClick={() => void copyNewKey()}>Copy key</button><button className="btn" onClick={() => setNewKey(null)}>Hide</button></div>}<KeyTable keys={keys} onRevoke={revokeKey} onDelete={deleteKey} /></Card></>; }
+  function users() { return <><Header eyebrow="Administration" title="User management" description="Manage dashboard access, roles, activation, passwords, and deletion." /><Card title="Dashboard users" meta="Administrator access only"><div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>{(report?.users || []).map((u) => <tr key={u.id}><td><b>{u.email}</b></td><td><select value={u.role} onChange={(e) => updateUser(u.id, { role: e.target.value })}><option value="operator">Operator</option><option value="admin">Administrator</option></select></td><td><button className="btn" onClick={() => updateUser(u.id, { active: !u.active })}>{u.active ? 'Deactivate' : 'Activate'}</button></td><td>{when(u.created_at)}</td><td><Status tone={u.active ? 'ok' : 'bad'}>{u.active ? 'Active' : 'Inactive'}</Status><button className="btn" onClick={() => resetPassword(u.id)}>Password</button><button className="btn danger" onClick={() => deleteUser(u.id, u.email)}>Delete</button></td></tr>)}</tbody></table></div></Card></>; }
+  function reports() { return <><Header eyebrow="Administration" title="User reports" description="Per-user requests, token usage, client-key activity, and audit events." /><Card title="Usage by user" meta="Prompt content is never shown"><div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>User</th><th>Role</th><th>Requests</th><th>Input tokens</th><th>Output tokens</th><th>Total tokens</th><th>Last request</th></tr></thead><tbody>{(report?.users || []).map((u) => <tr key={u.id}><td>{u.email}</td><td>{u.role}</td><td>{fmt(u.requests)}</td><td>{fmt(u.input_tokens)}</td><td>{fmt(u.output_tokens)}</td><td>{fmt(u.total_tokens)}</td><td>{when(u.last_request_at)}</td></tr>)}</tbody></table></div></Card><Card title="Audit log" meta="Latest events"><div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead><tbody>{(report?.audit_log || []).map((x, i) => <tr key={i}><td>{when(String(x.created_at))}</td><td>{String(x.actor || 'system')}</td><td><Status>{String(x.action)}</Status></td><td>{String(x.target || '—')}</td></tr>)}</tbody></table></div></Card></>; }
+  function oauth() { const supported = Object.values(ov.provider_catalog || {}).flat(); return <><Header eyebrow="Identity & access" title="OAuth2, Enterprise SSO & IAM" description="Provider-specific authentication options with server-side token refresh." /><Card title="Supported provider boundaries" meta="Official integration guidance"><div className="dash-provider-grid">{supported.map((p) => <div className="dash-provider-card" key={p.id}><b>{p.name}</b><small>{p.protocol} · {p.auth}</small><Status tone={p.auth.includes('key') ? 'warn' : 'ok'}>{p.auth.includes('key') ? 'API key / IAM' : 'Bearer compatible'}</Status></div>)}</div></Card><Card title="Configured connections" meta="Secrets never render in the browser"><div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>Connection</th><th>Provider</th><th>Mode</th><th>Credential setup</th><th>Status</th><th /></tr></thead><tbody>{ov.accounts.map((a) => <tr key={a.name}><td><b>{a.name}</b></td><td>{a.provider}</td><td>{a.auth_mode || 'api_key'}</td><td><small>Token file {a.oauth_token_file ? 'configured' : 'not configured'} · Client {a.oauth_client_id ? 'configured' : 'not configured'}</small></td><td><Status tone={a.auth_mode === 'oauth2' ? 'ok' : 'warn'}>{a.auth_mode === 'oauth2' ? 'Server-managed' : 'API key'}</Status></td><td><button className="btn" onClick={() => editAccount(a)}>Configure</button></td></tr>)}</tbody></table></div>{!ov.accounts.length && <Empty text="No provider connections configured." />}</Card><Card title="Security boundary"><div className="dash-card-body"><p className="sub">OAuth credentials and provider secrets stay server-side. Supported official flows must be configured by an administrator.</p></div></Card></>; }
+  function docs() { return <><Header eyebrow="Operator guide" title="Using Simha Edge Router" description="One stable endpoint for OpenAI-compatible, Anthropic, and multi-provider routing." /><div className="dash-grid"><Card title="Connection"><div className="dash-card-body"><p><b>Base URL</b></p><pre className="dash-code">https://api.simhaonline.ai/v1</pre><p><b>Authentication</b></p><p className="sub">Use a client key as <code>Authorization: Bearer YOUR_KEY</code>.</p></div></Card><Card title="Troubleshooting"><div className="dash-card-body"><p><b>401</b> — use an active key.</p><p><b>429</b> — provider budget, rate limit, or cooldown.</p><p><b>400</b> — reduce context or tool output.</p><p><b>Rotate</b> — create a replacement, verify traffic, then revoke the old key.</p></div></Card></div><Card title="CLI compatibility"><div className="dash-card-body"><pre className="dash-code">Base URL: https://api.simhaonline.ai/v1{`\n`}Authorization: Bearer YOUR_KEY</pre></div></Card></>; }
+  function settings() { return <><Header eyebrow="Configuration" title="Settings" description="Control dashboard appearance and deployment preferences." /><div className="dash-grid"><Card title="Appearance" meta="Stored on this device"><div className="dash-settings"><div className="dash-setting"><div><b>Dark mode</b><small>Low-glare operator theme.</small></div><button className={`dash-switch ${dark ? 'on' : ''}`} onClick={() => setDark(!dark)}><i /></button></div><div className="dash-setting"><div><b>Auto-refresh</b><small>Refresh every 30 seconds.</small></div><Status>Enabled</Status></div></div></Card><Card title="Deployment"><div className="dash-settings"><div className="dash-setting"><b>Public API</b><span className="mono">https://api.simhaonline.ai/v1</span></div><div className="dash-setting"><b>Health</b><Status>Online</Status></div><div className="dash-setting"><b>Model refresh</b><button className="btn" onClick={refresh}>Refresh</button></div></div></Card></div></>; }
+  let content: React.ReactNode = overview(); if (loading) content = <div className="dash-loading">Loading control center…</div>; else if (view === 'accounts') content = accounts(); else if (view === 'usage') content = usage(); else if (view === 'models') content = models(); else if (view === 'provider-models') content = providerModelView(); else if (view === 'providers') content = providers(); else if (view === 'routing') content = controls('Routing policies', 'Configure safe, budget-aware provider selection.', ['Automatic failover', 'Prefer fastest healthy account', 'Respect model family mapping', 'Protect output budgets']); else if (view === 'limits') content = controls('Budgets & limits', 'Protect provider quotas with minute, daily, and weekly enforcement.', ['Enforce minute windows', 'Enforce daily windows', 'Enforce weekly windows', 'Warn at 70% capacity']); else if (view === 'observability') content = observability(); else if (view === 'activity') content = activity(); else if (view === 'keys') content = keyView(); else if (view === 'oauth') content = oauth(); else if (view === 'users') content = users(); else if (view === 'reports') content = reports(); else if (view === 'docs') content = docs(); else if (view === 'settings') content = settings();
+  return <div className="dash-shell"><aside className="dash-side"><div className="dash-brand"><span>⌁</span><b>Simha Edge Router</b></div><div className="dash-workspace"><small>Workspace</small><b>Default workspace</b></div><nav>{visible.map((x) => <div key={x.id}>{x.section && <small className="dash-section">{x.section}</small>}<button className={view === x.id ? 'active' : ''} onClick={() => go(x.id)}><span>{x.icon}</span>{x.label}</button></div>)}</nav><div className="dash-side-foot"><Status>API online</Status><small>{ov.auth?.role || 'operator'} session</small><button className="dash-signout" onClick={() => void logout()}>Sign out</button></div></aside><main className="dash-main"><header className="dash-top"><div><span className="dash-mobile-mark">⌁</span><span className="sub">Control Center / </span><b>{nav.find((x) => x.id === view)?.label}</b></div><div className="dash-top-actions"><input placeholder="Search models…" value={search} onChange={(e) => { setSearch(e.target.value); if (e.target.value) go('models'); }} /><button className="btn" onClick={load}>↻</button><Status>Healthy</Status></div></header><div className="dash-content">{notice && <div className={`dash-notice ${noticeTone}`} role="status" aria-live="polite"><span className="dash-notice-icon">{noticeTone === 'success' ? '✓' : noticeTone === 'warning' ? '!' : '×'}</span><span className="dash-notice-message">{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}>×</button></div>}{content}{view === 'overview' && <PlanUsage />}</div></main></div>;
 }
+function AccountTable({ accounts, onEdit, onDelete, onTest, testing, testResults }: { accounts: Account[]; onEdit: (a: Account) => void; onDelete: (n: string) => void; onTest?: (n: string) => void; testing?: string | null; testResults?: Record<string, { ok: boolean; status: string; message: string; latency_ms?: number; model_count?: number }> }) { return <div className="dash-table-wrap"><table className="dash-table dash-account-table"><thead><tr><th>Upstream</th><th>Provider</th><th>Limits</th><th>Health</th><th>Actions</th></tr></thead><tbody>{accounts.map((a) => { const p = Math.max(a.limits.day?.percent || 0, a.limits.week?.percent || 0); const exhausted = p >= 100; const nearLimit = p >= 90; const tone = a.cooldown_until > Date.now() / 1000 || exhausted ? 'bad' : nearLimit ? 'warn' : 'ok'; const result = testResults?.[a.name]; const resultTone = result?.status === 'oauth_pending' ? 'warn' : result?.ok ? 'ok' : 'bad'; return <tr key={a.name}><td><b>{a.name}</b><small>{a.base_url}</small><small>{a.api_key}</small></td><td><b>{a.provider}</b><small>{a.protocol} · {a.api_prefix}</small></td><td><small>Day {fmt(a.limits.day?.used)} / {fmt(a.limits.day?.limit)}</small><small>Week {fmt(a.limits.week?.used)} / {fmt(a.limits.week?.limit)}</small></td><td><Status tone={result ? resultTone : tone}>{result ? (result.status === 'testing' ? 'Testing…' : result.status === 'oauth_pending' ? 'OAuth pending' : result.status === 'local_limit_reached' || result.status === 'upstream_limit_reached' ? 'Limit reached' : result.ok ? 'Verified' : 'Check failed') : tone === 'bad' ? (exhausted ? 'Local limit reached' : 'Cooldown') : tone === 'warn' ? 'Near local limit' : 'Configured'}</Status>{result && <small className={result.ok ? 'test-success' : result.status === 'oauth_pending' ? 'test-pending' : 'test-error'}>{result.message}{result.latency_ms ? ` · ${result.latency_ms}ms` : ''}{result.model_count ? ` · ${result.model_count} models` : ''}</small>}{!result && <small className="test-pending">Upstream quota not checked</small>}</td><td className="dash-row-actions">{onTest && <button className="btn primary" disabled={testing === a.name} onClick={() => onTest(a.name)}>{testing === a.name ? 'Testing…' : 'Test API'}</button>}<button className="btn" onClick={() => onEdit(a)}>Edit</button><button className="btn danger" onClick={() => onDelete(a.name)}>Delete</button></td></tr>; })}</tbody></table>{!accounts.length && <Empty text="No upstream accounts configured. Add one above to enable testing and model discovery." />}</div>; }
+function ModelTable({ models, tokens }: { models: string[]; tokens: Overview['model_tokens'] }) { return <div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>Model</th><th>Availability</th><th>Input</th><th>Output</th></tr></thead><tbody>{models.map((m) => <tr key={m}><td className="mono"><b>{m}</b></td><td><Status>Available</Status></td><td>{fmt(tokens[m]?.prompt)}</td><td>{fmt(tokens[m]?.completion)}</td></tr>)}</tbody></table>{!models.length && <Empty text="No models discovered." />}</div>; }
+function KeyTable({ keys, onRevoke, onDelete }: { keys: Key[]; onRevoke: (id: number) => void; onDelete: (id: number) => void }) { return <div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>API key ID</th><th>Name</th><th>Key prefix</th><th>Status</th><th>Created</th><th>Last used</th><th>Uses</th><th>Actions</th></tr></thead><tbody>{keys.map((k) => <tr key={k.id}><td className="mono">#{k.id}</td><td><b>{k.name}</b></td><td className="mono">{k.key_prefix}••••••</td><td><Status tone={k.active ? 'ok' : 'bad'}>{k.active ? 'Active' : 'Revoked'}</Status></td><td>{when(k.created_at)}</td><td>{when(k.last_used_at || undefined)}</td><td>{fmt(k.request_count)}</td><td className="dash-row-actions">{k.active && <button className="btn" onClick={() => onRevoke(k.id)}>Revoke</button>}<button className="btn danger" onClick={() => onDelete(k.id)}>Delete</button></td></tr>)}</tbody></table>{!keys.length && <Empty text="No client keys yet." />}</div>; }

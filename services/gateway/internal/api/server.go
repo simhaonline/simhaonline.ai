@@ -6,6 +6,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -67,6 +68,11 @@ func requestID(next http.Handler) http.Handler {
 			id = randomID()
 		}
 		w.Header().Set("X-Request-ID", id)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -108,7 +114,8 @@ func (s *Server) authorize(r *http.Request) (*authCtx, int, string) {
 	hash := hex.EncodeToString(sum[:])
 	ctx := r.Context()
 
-	var id, owner int64
+	var id int64
+	var owner sql.NullInt64
 	var active bool
 	var expires *time.Time
 	err := s.st.Pool.QueryRow(ctx, `
@@ -122,10 +129,11 @@ func (s *Server) authorize(r *http.Request) (*authCtx, int, string) {
 	}
 	_ = s.st.TouchClientKey(ctx, id)
 	ac := &authCtx{ClientKeyID: &id}
-	if owner > 0 {
-		ac.UserID = &owner
+	if owner.Valid && owner.Int64 > 0 {
+		ownerID := owner.Int64
+		ac.UserID = &ownerID
 		// plan quota check (daily request ceiling; unlimited when negative)
-		if code2, msg2 := s.checkQuota(ctx, owner); code2 != 0 {
+		if code2, msg2 := s.checkQuota(ctx, ownerID); code2 != 0 {
 			return nil, code2, msg2
 		}
 	}
@@ -338,7 +346,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		apiPrefix = "/api"
 		protocol = "ollama"
 		path = strings.TrimPrefix(r.URL.Path, "/api")
-	} else if path == "messages" {
+	} else if strings.Trim(path, "/") == "messages" {
 		protocol = "anthropic"
 	}
 	path = strings.Trim(path, "/")
@@ -356,10 +364,33 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	var data map[string]any
 	model := ""
+	inferredTask := false
+	task := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Simha-Task")))
+	inputModality := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Simha-Input-Modality")))
+	outputModality := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Simha-Output-Modality")))
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &data); err == nil {
 			if m, ok := data["model"].(string); ok {
 				model = m
+			}
+			if task == "" {
+				if v, ok := data["task"].(string); ok {
+					task = strings.ToLower(strings.TrimSpace(v))
+				}
+			}
+			if inputModality == "" {
+				if v, ok := data["input_modality"].(string); ok {
+					inputModality = strings.ToLower(strings.TrimSpace(v))
+				}
+			}
+			if outputModality == "" {
+				if v, ok := data["output_modality"].(string); ok {
+					outputModality = strings.ToLower(strings.TrimSpace(v))
+				}
+			}
+			if task == "" {
+				task = inferTask(data)
+				inferredTask = true
 			}
 			policy := s.st.Policy(ctx, model)
 			var changes []string
@@ -372,8 +403,16 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// auto model selection (legacy: model None/""/"auto")
+	requestedModel := model
 	if model == "" || model == "auto" {
-		model = s.autoModel(ctx, protocol)
+		var selected store.RouteScore
+		model, selected, _ = s.st.SelectModel(ctx, protocol, task, r.Header.Get("X-Simha-Routing-Mode"), 0.9)
+		if model != "" {
+			w.Header().Set("X-Simha-Route-Model", model)
+			w.Header().Set("X-Simha-Task", task)
+			w.Header().Set("X-Simha-Route-ELO", fmt.Sprintf("%.0f", selected.ELO))
+			w.Header().Set("X-Simha-Route-Score", fmt.Sprintf("%.2f", selected.Total))
+		}
 		if model != "" && len(body) > 0 && data != nil {
 			data["model"] = model
 			b2, _ := json.Marshal(data)
@@ -383,11 +422,70 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	// compare mode (legacy X-Simha-Mode: compare)
 	if strings.EqualFold(r.Header.Get("X-Simha-Mode"), "compare") && r.Method == http.MethodPost {
-		s.handleCompare(w, r, ctx, ac, data, model, protocol)
+		s.handleCompare(w, r, ctx, ac, data, requestedModel, protocol)
 		return
 	}
 
-	s.forward(w, r, ctx, ac, path, r.Method, body, model, apiPrefix, protocol)
+	// An inferred task is a ranking signal, not a hard capability contract.
+	// Explicit task metadata remains strict and can intentionally reject models
+	// that do not advertise the requested modality/capability.
+	candidateTask := task
+	if inferredTask {
+		candidateTask = ""
+	}
+	s.forward(w, r, ctx, ac, path, r.Method, body, model, apiPrefix, protocol, candidateTask, inputModality, outputModality)
+}
+
+// exhaustionReason explains why one candidate account could not serve the
+// request, so a 429 from the gateway is always diagnosable from logs.
+type exhaustionReason struct {
+	Name     string `json:"name"`
+	Cooling  bool   `json:"cooling"`
+	NoModel  bool   `json:"no_model,omitempty"`
+	NoTask   bool   `json:"no_task,omitempty"`
+	NoCapacity bool `json:"no_capacity,omitempty"`
+}
+
+// inferTask is intentionally small and deterministic. Explicit task headers
+// still win; this only supplies a useful routing signal for ordinary chat.
+func inferTask(data map[string]any) string {
+	if data == nil {
+		return "text-generation"
+	}
+	var text strings.Builder
+	if msgs, ok := data["messages"].([]any); ok {
+		for _, raw := range msgs {
+			if msg, ok := raw.(map[string]any); ok {
+				if content, ok := msg["content"].(string); ok {
+					text.WriteString(" ")
+					text.WriteString(content)
+				}
+			}
+		}
+	}
+	l := strings.ToLower(text.String())
+	if strings.Contains(l, "translate") || strings.Contains(l, "translation") || strings.Contains(l, " in french") || strings.Contains(l, " in spanish") {
+		return "translation"
+	}
+	if strings.Contains(l, "summarize") || strings.Contains(l, "summary") || strings.Contains(l, "tl;dr") {
+		return "summarization"
+	}
+	if strings.Contains(l, "write code") || strings.Contains(l, "code review") || strings.Contains(l, "debug") || strings.Contains(l, "function ") || strings.Contains(l, "```") {
+		return "code-generation"
+	}
+	if strings.Contains(l, "calculate") || strings.Contains(l, "solve") || strings.Contains(l, "equation") || strings.Contains(l, "mathematics") {
+		return "mathematical-reasoning"
+	}
+	if strings.Contains(l, "classify") || strings.Contains(l, "sentiment") || strings.Contains(l, "label these") {
+		return "text-classification"
+	}
+	if strings.Contains(l, "image") || strings.Contains(l, "photo") || strings.Contains(l, "visual") {
+		return "image-text-to-text"
+	}
+	if strings.Contains(l, "audio") || strings.Contains(l, "transcribe") || strings.Contains(l, "speech") {
+		return "automatic-speech-recognition"
+	}
+	return "text-generation"
 }
 
 // autoModel picks the first known model with eligible accounts.
@@ -403,11 +501,20 @@ func (s *Server) autoModel(ctx context.Context, protocol string) string {
 // forward runs the candidate loop: pick best account, reserve, dispatch,
 // handle 429/401/403/404/model-400 failover, stream the response back.
 func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Context,
-	ac *authCtx, path, method string, body []byte, model, apiPrefix, protocol string) {
+	ac *authCtx, path, method string, body []byte, model, apiPrefix, protocol, task, inputModality, outputModality string) {
 
-	candidates := s.st.EligibleAccounts(ctx, model, protocol, s.cfg.UsageThreshold)
+	candidates := s.st.EligibleAccountsForTask(ctx, model, protocol, task, inputModality, outputModality, s.cfg.UsageThreshold)
 	if len(candidates) == 0 {
-		writeJSON(w, 429, map[string]any{"error": "No available account (all cooling down, at capacity, or lacking model)."})
+		// Diagnosability: when every account for the model is exhausted the
+		// client only sees "no available account". Log the per-account reason
+		// (cooldown / model absence / task capability / capacity) and include a
+		// compact summary in the response so operators can trace the blocker.
+		reasons := s.explainExhaustion(ctx, model, protocol, task, inputModality, outputModality)
+		log.Printf("[forward] no eligible account for model=%q task=%q protocol=%s reasons=%s",
+			model, task, protocol, mustJSON(reasons))
+		w.Header().Set("Retry-After", "5")
+		w.Header().Set("X-Simha-Exhaustion", string(mustJSON(reasons)))
+		writeJSON(w, 429, map[string]any{"error": "No available account (all cooling down, at capacity, or lacking model).", "code": "upstream_capacity", "model": model, "retryable": true, "accounts": reasons})
 		return
 	}
 
@@ -433,8 +540,14 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 		}
 
 		prefix := acc.APIPrefix
-		if apiPrefix == "/api" && acc.ProviderName() == "ollama" {
-			prefix = "/api"
+		if acc.ProviderName() == "ollama" {
+			if protocol == "ollama" {
+				prefix = "/api"
+			} else if protocol == "openai" {
+				// Ollama's OpenAI-compatible endpoint is /v1, while /api is
+				// reserved for native Ollama requests.
+				prefix = "/v1"
+			}
 		}
 		target := strings.TrimRight(acc.BaseURL, "/") + "/" + strings.Trim(prefix, "/")
 		if path != "" {
@@ -534,7 +647,60 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 		s.streamUpstream(w, lastAuth, path)
 		return
 	}
-	writeJSON(w, 429, map[string]any{"error": "No available account (all cooling down, at capacity, or lacking model)."})
+	reasons := s.explainExhaustion(ctx, model, protocol, task, inputModality, outputModality)
+	log.Printf("[forward] candidates exhausted for model=%q task=%q reasons=%s", model, task, mustJSON(reasons))
+	w.Header().Set("Retry-After", "5")
+	w.Header().Set("X-Simha-Exhaustion", string(mustJSON(reasons)))
+	writeJSON(w, 429, map[string]any{"error": "No available account (all cooling down, at capacity, or lacking model).", "code": "upstream_capacity", "model": model, "retryable": true, "accounts": reasons})
+}
+
+// explainExhaustion inspects every account that (in the Valkey catalog) serves
+// the model and reports why each is currently unusable. Accounts in cooldown
+// are reported with their remaining seconds; accounts that dropped out of the
+// discovered catalog are flagged as no_model.
+func (s *Server) explainExhaustion(ctx context.Context, model, protocol, task, inputModality, outputModality string) []exhaustionReason {
+	out := []exhaustionReason{}
+	threshold := s.cfg.UsageThreshold
+	names := s.st.AccountsForModel(ctx, model)
+	for _, name := range names {
+		r := exhaustionReason{Name: name}
+		acc := s.st.GetAccount(ctx, name)
+		if acc == nil {
+			r.NoModel = true
+			out = append(out, r)
+			continue
+		}
+		if s.st.IsCoolingDown(ctx, name) {
+			r.Cooling = true
+		}
+		if protocol != "" && acc.Protocol2() != protocol &&
+			!((protocol == "ollama" && acc.Protocol2() == "openai" && acc.ProviderName() == "ollama") ||
+				(protocol == "openai" && acc.Protocol2() == "ollama" && acc.ProviderName() == "ollama")) {
+			r.NoTask = true
+			out = append(out, r)
+			continue
+		}
+		if task != "" {
+			if capable := s.st.EligibleAccountsForTask(ctx, model, protocol, task, inputModality, outputModality, threshold); len(capable) == 0 {
+				r.NoTask = true
+				out = append(out, r)
+				continue
+			}
+		}
+		lim := acc.Limits
+		counts := s.st.WindowCounts(ctx, name)
+		for _, c := range []struct {
+			period string
+			limit  int
+		}{{"minute", lim.RPM}, {"day", lim.RPD}, {"week", lim.RPW}} {
+			if c.limit > 0 && float64(counts[c.period]) >= float64(c.limit)*threshold {
+				r.NoCapacity = true
+				break
+			}
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // streamUpstream copies the upstream response to the client, filtering hop headers.
@@ -584,17 +750,17 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request, ctx conte
 		writeJSON(w, 400, map[string]any{"error": "compare mode requires a JSON body"})
 		return
 	}
+	task := inferTask(data)
+	_, _, ranked := s.st.SelectModel(ctx, protocol, task, "quality", s.cfg.UsageThreshold)
 	var compareModels []string
-	for _, m := range s.st.KnownModels(ctx) {
-		if len(s.st.EligibleAccounts(ctx, m, protocol, s.cfg.UsageThreshold)) > 0 {
-			compareModels = append(compareModels, m)
-		}
+	for _, candidate := range ranked {
+		compareModels = append(compareModels, candidate.Model)
 		if len(compareModels) >= 3 {
 			break
 		}
 	}
 	var answers []string
-	for _, cm := range compareModels {
+	for i, cm := range compareModels {
 		cd := map[string]any{}
 		for k, v := range data {
 			cd[k] = v
@@ -603,7 +769,7 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request, ctx conte
 		b, _ := json.Marshal(cd)
 		ans := s.collectAnswer(ctx, r, "chat/completions", b, cm, protocol)
 		if ans != "" {
-			answers = append(answers, ans)
+			answers = append(answers, fmt.Sprintf("[candidate-%d]\n%s", i+1, ans))
 		}
 	}
 	if len(answers) == 0 {
@@ -612,7 +778,13 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request, ctx conte
 	}
 	judgeModel := model
 	if judgeModel == "" || judgeModel == "auto" {
-		if len(compareModels) > 0 {
+		for _, candidate := range ranked {
+			if !containsString(compareModels, candidate.Model) {
+				judgeModel = candidate.Model
+				break
+			}
+		}
+		if judgeModel == "" && len(compareModels) > 0 {
 			judgeModel = compareModels[0]
 		}
 	}
@@ -623,7 +795,7 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request, ctx conte
 		}
 	}
 	judgeMessages := []map[string]any{
-		{"role": "system", "content": "You are Simha Judge. Synthesize the strongest accurate answer from the candidate responses. Do not mention candidates, models, providers, or judging. Return only the final answer."},
+		{"role": "system", "content": "You are Simha Judge. Evaluate each candidate from 0 to 10 for relevance, factuality, coherence, instruction following, safety, formatting, and task completion. Select the strongest candidate. Return strict JSON only: {\"winner\":\"candidate-1\",\"final_answer\":\"...\",\"evaluations\":[{\"candidate\":\"candidate-1\",\"relevance\":0,\"factuality\":0,\"coherence\":0,\"instruction_following\":0,\"safety\":0,\"formatting\":0,\"task_completion\":0,\"explanation\":\"...\"}]}"},
 		{"role": "user", "content": question + "\n\nCandidate responses:\n" + strings.Join(answers, "\n\n---\n\n")},
 	}
 	judgeBody, _ := json.Marshal(map[string]any{
@@ -634,7 +806,89 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request, ctx conte
 		writeJSON(w, 503, map[string]any{"error": "The comparison judge is temporarily unavailable."})
 		return
 	}
+	if judged, ok := parseJudgeResult(result); ok {
+		s.recordJudgeResult(ctx, task, judgeModel, judged, compareModels)
+		writeJSON(w, 200, map[string]any{"id": "simha-compare", "object": "chat.completion", "model": judged.Winner, "choices": []any{map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": judged.FinalAnswer}, "finish_reason": "stop"}}, "judge": judged})
+		return
+	}
+	// A provider that ignores the JSON instruction still produces a usable
+	// answer; do not discard it or charge the user another request.
 	writeJSONRaw(w, 200, result)
+}
+
+type judgeEvaluation struct {
+	Candidate            string  `json:"candidate"`
+	Relevance            float64 `json:"relevance"`
+	Factuality           float64 `json:"factuality"`
+	Coherence            float64 `json:"coherence"`
+	InstructionFollowing float64 `json:"instruction_following"`
+	Safety               float64 `json:"safety"`
+	Formatting           float64 `json:"formatting"`
+	TaskCompletion       float64 `json:"task_completion"`
+	Explanation          string  `json:"explanation"`
+}
+
+type judgeResult struct {
+	Winner      string            `json:"winner"`
+	FinalAnswer string            `json:"final_answer"`
+	Evaluations []judgeEvaluation `json:"evaluations"`
+}
+
+func parseJudgeResult(raw []byte) (judgeResult, bool) {
+	var envelope struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil || len(envelope.Choices) == 0 {
+		return judgeResult{}, false
+	}
+	content := strings.TrimSpace(envelope.Choices[0].Message.Content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimSuffix(strings.TrimSpace(content), "```")
+	var result judgeResult
+	if json.Unmarshal([]byte(strings.TrimSpace(content)), &result) != nil || result.FinalAnswer == "" || len(result.Evaluations) == 0 {
+		return judgeResult{}, false
+	}
+	return result, true
+}
+
+func (s *Server) recordJudgeResult(ctx context.Context, task, judgeModel string, result judgeResult, candidates []string) {
+	for _, evaluation := range result.Evaluations {
+		modelName := evaluation.Candidate
+		if strings.HasPrefix(modelName, "candidate-") {
+			var index int
+			if _, err := fmt.Sscanf(modelName, "candidate-%d", &index); err == nil && index > 0 && index <= len(candidates) {
+				modelName = candidates[index-1]
+			}
+		}
+		quality := (evaluation.Relevance + evaluation.Factuality + evaluation.Coherence + evaluation.InstructionFollowing + evaluation.Safety + evaluation.Formatting + evaluation.TaskCompletion) / 7 * 10
+		winnerModel := result.Winner
+		if strings.HasPrefix(winnerModel, "candidate-") {
+			var index int
+			if _, err := fmt.Sscanf(winnerModel, "candidate-%d", &index); err == nil && index > 0 && index <= len(candidates) {
+				winnerModel = candidates[index-1]
+			}
+		}
+		isWinner := modelName == winnerModel
+		_, _ = s.st.Pool.Exec(ctx, `INSERT INTO judge_evaluations(request_id, model, task_slug, quality_score, factuality_score, safety_score, format_score, verdict, explanation, metrics_json) VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10)`, "compare-"+result.Winner, modelName, task, quality, evaluation.Factuality*10, evaluation.Safety*10, evaluation.Formatting*10, map[bool]string{true: "winner", false: "candidate"}[isWinner], evaluation.Explanation, mustJSON(evaluation))
+		_, _ = s.st.Pool.Exec(ctx, `INSERT INTO model_route_scores(model, task_slug, elo, quality_score, battle_count) VALUES ($1, COALESCE(NULLIF($2,''),'text-generation'), 1516, $3, 1) ON CONFLICT (model, task_slug) DO UPDATE SET elo = model_route_scores.elo + CASE WHEN $4 THEN 16 ELSE -16 END, quality_score = (model_route_scores.quality_score * model_route_scores.battle_count + EXCLUDED.quality_score) / (model_route_scores.battle_count + 1), battle_count = model_route_scores.battle_count + 1, updated_at = now()`, modelName, task, quality, isWinner)
+	}
+	_ = candidates
+	_ = judgeModel
+}
+
+func mustJSON(value any) []byte { raw, _ := json.Marshal(value); return raw }
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // collectAnswer performs one non-streaming dispatch and extracts the message content.

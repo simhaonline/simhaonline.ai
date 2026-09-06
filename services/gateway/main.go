@@ -62,7 +62,14 @@ func main() {
 	go st.MaintenanceLoop(ctx)
 
 	log.Printf("Simha gateway listening on %s", cfg.Addr)
-	if err := http.ListenAndServe(cfg.Addr, srv.Handler()); err != nil {
+	server := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("gateway http: %v", err)
 	}
 }

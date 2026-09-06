@@ -65,6 +65,7 @@ CREATE TABLE discovered_models (
     model TEXT NOT NULL,
     account_name TEXT NOT NULL REFERENCES accounts(name) ON DELETE CASCADE,
     last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
     PRIMARY KEY (model, account_name)
 );
 
@@ -295,6 +296,7 @@ CREATE TABLE app_settings (
 -- ============ TimescaleDB: request telemetry ============
 
 CREATE TABLE request_history (
+    id BIGINT,
     requested_at TIMESTAMPTZ NOT NULL,
     account_name TEXT,
     model TEXT,
@@ -313,6 +315,23 @@ CREATE INDEX idx_request_history_user ON request_history(user_id, requested_at D
 CREATE INDEX idx_request_history_account ON request_history(account_name, requested_at DESC);
 -- per-minute/day/week rolling windows and 30-day uptime read from this
 CREATE INDEX idx_request_history_bucket ON request_history(requested_at, account_name);
+
+-- Legacy-compatible aggregate counters. The dashboard primarily reads the
+-- Timescale request history, but these tables preserve the old project's
+-- stable account/model totals for integrations and operational tooling.
+CREATE TABLE token_usage (
+    account_name TEXT PRIMARY KEY REFERENCES accounts(name) ON DELETE CASCADE,
+    prompt_tokens BIGINT NOT NULL DEFAULT 0,
+    completion_tokens BIGINT NOT NULL DEFAULT 0,
+    total_tokens BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE model_token_usage (
+    model TEXT PRIMARY KEY,
+    prompt_tokens BIGINT NOT NULL DEFAULT 0,
+    completion_tokens BIGINT NOT NULL DEFAULT 0,
+    total_tokens BIGINT NOT NULL DEFAULT 0
+);
 
 ALTER TABLE request_history SET (
     timescaledb.compress,

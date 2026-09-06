@@ -15,6 +15,7 @@ import httpx
 import psycopg
 from psycopg_pool import AsyncConnectionPool
 import redis.asyncio as aioredis
+import boto3
 from fastapi import FastAPI
 
 LOG = logging.getLogger("simha.worker")
@@ -26,6 +27,16 @@ GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://gateway:8080")
 CONTROL_URL = os.environ.get("CONTROL_PLANE_URL", "http://control-plane:8081")
 DISCOVERY_INTERVAL = int(os.environ.get("MODEL_REFRESH_INTERVAL", "300"))
 STATUS_INTERVAL = int(os.environ.get("STATUS_SNAPSHOT_INTERVAL", "60"))
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/uploads")
+OBJECT_STORAGE_BACKEND = os.environ.get("OBJECT_STORAGE_BACKEND", "s3")
+OBJECT_STORAGE_BUCKET = os.environ.get("OBJECT_STORAGE_BUCKET", "simha-user-files")
+object_storage = boto3.client(
+    "s3",
+    endpoint_url=os.environ.get("OBJECT_STORAGE_ENDPOINT", "http://minio:9000"),
+    region_name=os.environ.get("OBJECT_STORAGE_REGION", "us-east-1"),
+    aws_access_key_id=os.environ.get("OBJECT_STORAGE_ACCESS_KEY", ""),
+    aws_secret_access_key=os.environ.get("OBJECT_STORAGE_SECRET_KEY", ""),
+)
 
 pool: AsyncConnectionPool | None = None
 
@@ -33,8 +44,47 @@ pool: AsyncConnectionPool | None = None
 async def db() -> AsyncConnectionPool:
     global pool
     if pool is None:
-        pool = AsyncConnectionPool(DB_URL, min_size=1, max_size=8, open=True)
+        pool = AsyncConnectionPool(DB_URL, min_size=1, max_size=8, open=False)
+        await pool.open()
     return pool
+
+
+async def ensure_legacy_compatibility():
+    """Apply additive, idempotent fields retained by the legacy router."""
+    async with pool.connection() as c:
+        # Timescale columnstore hypertables reject adding identity/constraint
+        # columns after creation; retain the legacy field as an additive,
+        # nullable compatibility column instead.
+        await c.execute("ALTER TABLE request_history ADD COLUMN IF NOT EXISTS id BIGINT")
+        await c.execute("ALTER TABLE discovered_models ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE")
+        await c.execute("""
+            CREATE TABLE IF NOT EXISTS token_usage (
+                account_name TEXT PRIMARY KEY REFERENCES accounts(name) ON DELETE CASCADE,
+                prompt_tokens BIGINT NOT NULL DEFAULT 0,
+                completion_tokens BIGINT NOT NULL DEFAULT 0,
+                total_tokens BIGINT NOT NULL DEFAULT 0
+            )
+        """)
+        await c.execute("""
+            CREATE TABLE IF NOT EXISTS model_token_usage (
+                model TEXT PRIMARY KEY,
+                prompt_tokens BIGINT NOT NULL DEFAULT 0,
+                completion_tokens BIGINT NOT NULL DEFAULT 0,
+                total_tokens BIGINT NOT NULL DEFAULT 0
+            )
+        """)
+        await c.execute("""
+            INSERT INTO token_usage(account_name, prompt_tokens, completion_tokens, total_tokens)
+            SELECT account_name, COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(total_tokens), 0)
+            FROM request_history WHERE account_name IS NOT NULL GROUP BY account_name
+            ON CONFLICT (account_name) DO NOTHING
+        """)
+        await c.execute("""
+            INSERT INTO model_token_usage(model, prompt_tokens, completion_tokens, total_tokens)
+            SELECT model, COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(total_tokens), 0)
+            FROM request_history WHERE model IS NOT NULL GROUP BY model
+            ON CONFLICT (model) DO NOTHING
+        """)
 
 
 # ---------------- jobs ----------------
@@ -44,7 +94,7 @@ async def trigger_discovery():
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(f"{GATEWAY_URL}/internal/refresh-models")
-            if r.status_code == 200:
+            if r.status_code in (200, 202):
                 LOG.info("discovery triggered")
             else:
                 LOG.warning("discovery trigger: HTTP %s", r.status_code)
@@ -184,6 +234,7 @@ async def rollup_loop():
 async def scheduled_runner():
     """Queue due scheduled tasks as chat messages (parity with legacy scheduler)."""
     try:
+        tasks = []
         async with pool.connection() as c:
             async with c.cursor() as cur:
                 await cur.execute("""
@@ -209,6 +260,108 @@ async def scheduler_loop():
     while True:
         await scheduled_runner()
         await asyncio.sleep(60)
+
+
+# ---------------- Intake Dock ingestion ----------------
+
+def _extract_file(file_path: str, mime_type: str, original_name: str) -> tuple[str, str]:
+    """Extract safe text where a parser is installed; preserve binary assets."""
+    suffix = os.path.splitext(original_name)[1].lower()
+    text_types = mime_type.startswith("text/") or suffix in {".json", ".yaml", ".yml", ".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp", ".sh", ".sql", ".md", ".csv", ".html", ".htm", ".css"}
+    if text_types:
+        with open(file_path, "rb") as handle:
+            return handle.read(8 * 1024 * 1024).decode("utf-8", errors="replace"), "text"
+    if mime_type == "application/pdf" or suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(file_path)
+            return "\n\n".join(page.extract_text() or "" for page in reader.pages)[:8 * 1024 * 1024], "pdf"
+        except Exception as exc:  # noqa: BLE001
+            return "", f"pdf-unavailable:{type(exc).__name__}"
+    if suffix in {".xlsx", ".xls"}:
+        try:
+            import openpyxl
+            book = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            lines = []
+            for sheet in book.worksheets:
+                lines.append(f"# Sheet: {sheet.title}")
+                for row in sheet.iter_rows(values_only=True):
+                    lines.append("\t".join("" if value is None else str(value) for value in row))
+            return "\n".join(lines)[:8 * 1024 * 1024], "spreadsheet"
+        except Exception as exc:  # noqa: BLE001
+            return "", f"spreadsheet-unavailable:{type(exc).__name__}"
+    if suffix in {".ppt", ".pptx"}:
+        try:
+            from pptx import Presentation
+            presentation = Presentation(file_path)
+            text = []
+            for slide in presentation.slides:
+                text.extend(shape.text for shape in slide.shapes if hasattr(shape, "text"))
+            return "\n".join(text)[:8 * 1024 * 1024], "slides"
+        except Exception as exc:  # noqa: BLE001
+            return "", f"slides-unavailable:{type(exc).__name__}"
+    return "", "binary-passthrough"
+
+
+async def process_ingestion_job(job_id: str):
+    async with pool.connection() as c:
+        await c.execute("UPDATE file_ingestion_jobs SET status='processing', started_at=COALESCE(started_at, now()), updated_at=now() WHERE id=%s AND status='queued'", (job_id,))
+        async with c.cursor() as cur:
+            await cur.execute("SELECT id, storage_key, storage_backend, storage_bucket, original_name, mime_type FROM file_ingestion_files WHERE job_id=%s ORDER BY created_at", (job_id,))
+            files = await cur.fetchall()
+    failed = 0
+    for file_id, storage_key, storage_backend, storage_bucket, original_name, mime_type in files:
+        file_path = os.path.join(UPLOAD_DIR, storage_key)
+        temporary_object = None
+        try:
+            if (storage_backend or OBJECT_STORAGE_BACKEND) == "s3":
+                temporary_object = os.path.join("/tmp", "simha-ingestion", str(file_id), os.path.basename(storage_key))
+                os.makedirs(os.path.dirname(temporary_object), exist_ok=True)
+                await asyncio.to_thread(object_storage.download_file, storage_bucket or OBJECT_STORAGE_BUCKET, storage_key, temporary_object)
+                file_path = temporary_object
+            extracted, parser = _extract_file(file_path, mime_type, original_name)
+            async with pool.connection() as c:
+                await c.execute("UPDATE file_ingestion_files SET status='processing', parser=%s, updated_at=now() WHERE id=%s", (parser, file_id))
+                await c.execute("DELETE FROM file_ingestion_chunks WHERE file_id=%s", (file_id,))
+                for index, start in enumerate(range(0, len(extracted), 6000)):
+                    chunk = extracted[start:start + 6000]
+                    vec = _hash_embedding(chunk, 384)
+                    await c.execute("INSERT INTO file_ingestion_chunks(file_id, chunk_index, content, token_estimate, embedding) VALUES (%s,%s,%s,%s,%s::vector)", (file_id, index, chunk, max(1, len(chunk) // 4), "[" + ",".join(f"{x:.6f}" for x in vec) + "]"))
+                await c.execute("UPDATE file_ingestion_files SET status='completed', extracted_text=%s, updated_at=now() WHERE id=%s", (extracted[:8 * 1024 * 1024], file_id))
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            LOG.exception("ingestion failed for %s", file_id)
+            async with pool.connection() as c:
+                await c.execute("UPDATE file_ingestion_files SET status='failed', error_message=%s, updated_at=now() WHERE id=%s", (str(exc)[:1000], file_id))
+        finally:
+            if temporary_object:
+                try:
+                    os.remove(temporary_object)
+                except OSError:
+                    pass
+    async with pool.connection() as c:
+        await c.execute("UPDATE file_ingestion_jobs SET status=%s, completed_at=now(), updated_at=now() WHERE id=%s", ("partial" if failed and failed < len(files) else "failed" if failed else "completed", job_id))
+
+
+async def ingestion_loop():
+    """Consume upload events and recover queued jobs after a worker restart."""
+    redis = aioredis.from_url(VALKEY_URL, decode_responses=True)
+    pubsub = redis.pubsub()
+    await pubsub.subscribe("simha:ingestion")
+    while True:
+        message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+        if message and message.get("data"):
+            try:
+                await process_ingestion_job(json.loads(message["data"])["job_id"])
+            except Exception as exc:  # noqa: BLE001
+                LOG.warning("ingestion event failed: %s", exc)
+        async with pool.connection() as c:
+            async with c.cursor() as cur:
+                await cur.execute("SELECT id FROM file_ingestion_jobs WHERE status='queued' ORDER BY created_at LIMIT 2")
+                pending = await cur.fetchall()
+        for (job_id,) in pending:
+            await process_ingestion_job(str(job_id))
+        await asyncio.sleep(1)
 
 
 # ---------------- semantic memory (pgvector) ----------------
@@ -281,9 +434,21 @@ async def backup_run():
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:
-            LOG.warning("pg_dump failed: %s", err.decode()[-300:])
+            # Keep the beginning as well as the tail: pg_dump often puts the
+            # actual failing relation first and the useful hint last.
+            detail = err.decode(errors="replace").strip()
+            LOG.warning("pg_dump failed (exit %s): %s", proc.returncode, detail[:2000])
             return
         size = os.path.getsize(path)
+        verify = await asyncio.create_subprocess_exec("gzip", "-t", path, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+        _, verify_err = await verify.communicate()
+        if verify.returncode != 0:
+            LOG.warning("backup verification failed for %s: %s", path, verify_err.decode(errors="replace")[:1000])
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return
         LOG.info("backup written: %s (%d bytes)", path, size)
         # prune: keep 7 newest
         backups = sorted(
@@ -309,13 +474,16 @@ async def backup_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global pool
-    pool = AsyncConnectionPool(DB_URL, min_size=1, max_size=8, open=True)
+    pool = AsyncConnectionPool(DB_URL, min_size=1, max_size=8, open=False)
+    await pool.open()
+    await ensure_legacy_compatibility()
     tasks = [
         asyncio.create_task(discovery_loop(), name="discovery"),
         asyncio.create_task(status_loop(), name="status"),
         asyncio.create_task(email_worker(), name="email"),
         asyncio.create_task(rollup_loop(), name="rollups"),
         asyncio.create_task(scheduler_loop(), name="scheduler"),
+        asyncio.create_task(ingestion_loop(), name="ingestion"),
         asyncio.create_task(backup_loop(), name="backup"),
         asyncio.create_task(_seed_delayed(), name="seed"),
     ]

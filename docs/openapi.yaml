@@ -1,0 +1,69 @@
+openapi: 3.0.3
+info:
+  title: Simha Online API
+  version: 1.0.0
+  description: Stable OpenAI-compatible gateway and authenticated control-plane API.
+servers:
+  - url: https://api.simhaonline.ai/v1
+    description: Production gateway
+  - url: https://platform.simhaonline.ai
+    description: Authenticated control plane
+paths:
+  /models:
+    get:
+      summary: List discovered models
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Models returned }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /chat/completions:
+    post:
+      summary: Create an OpenAI-compatible chat completion
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200': { description: Completion returned or streamed }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { description: Upstream provider failure }
+  /healthz:
+    get:
+      summary: Gateway health check
+      responses:
+        '200': { description: Service is accepting requests }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    BadRequest:
+      description: Invalid request payload
+    Unauthorized:
+      description: Missing or invalid API key
+    RateLimited:
+      description: Quota, provider, or capacity limit reached
+  schemas:
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model: { type: string, example: gpt-4o }
+        messages:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role: { type: string, enum: [system, user, assistant, tool] }
+              content: {}
+        stream: { type: boolean, default: false }
+        temperature: { type: number, minimum: 0, maximum: 2 }
+        max_tokens: { type: integer, minimum: 1 }

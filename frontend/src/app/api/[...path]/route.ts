@@ -3,9 +3,19 @@ import { NextResponse } from 'next/server';
 const CONTROL = process.env.CONTROL_PLANE_URL || 'http://control-plane:8081';
 
 // BFF: forward /api/* from the Next edge to the NestJS control plane,
-// preserving method, cookies and body.
+// preserving method, cookies and body. The browser-facing /api namespace is
+// intentionally flatter than the control-plane namespace, so translate the
+// route prefixes here rather than exposing internal controller layout.
+function controlPath(path: string[]): string[] {
+  if (path[0] === 'admin') return ['admin', 'api', ...path.slice(1)];
+  if (path[0] === 'client-keys') return ['api', 'client-keys', ...path.slice(1)];
+  if (path[0] === 'chat') return ['chat', 'api', ...path.slice(1)];
+  return path;
+}
+
 async function forward(req: Request, path: string[]) {
-  const url = `${CONTROL}/${path.map(encodeURIComponent).join('/')}${new URL(req.url).search}`;
+  const targetPath = controlPath(path);
+  const url = `${CONTROL}/${targetPath.map(encodeURIComponent).join('/')}${new URL(req.url).search}`;
   const headers = new Headers();
   headers.set('Content-Type', req.headers.get('content-type') || 'application/json');
   const cookie = req.headers.get('cookie');

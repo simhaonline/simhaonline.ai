@@ -153,7 +153,7 @@ export class ClientKeysController {
     if (user.role !== 'admin' && rows[0].owner_user_id !== user.id) {
       throw new HttpException({ error: 'not your key' }, HttpStatus.FORBIDDEN);
     }
-    await this.pool.query(`UPDATE client_api_keys SET active = false WHERE id = $1`, [id]);
-    return res.json({ ok: true });
+    await this.pool.query(`DELETE FROM client_api_keys WHERE id = $1`, [id]);
+    return res.json({ ok: true, deleted: true });
   }
 }

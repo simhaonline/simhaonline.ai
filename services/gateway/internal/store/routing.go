@@ -33,7 +33,7 @@ func (a *Account) ProviderName() string {
 }
 
 // isCoolingDown checks the Valkey cooldown key.
-func (s *Store) isCoolingDown(ctx context.Context, name string) bool {
+func (s *Store) IsCoolingDown(ctx context.Context, name string) bool {
 	v, err := s.Valkey.Do(ctx, s.Valkey.B().Get().Key(keyCooldown+name).Build()).ToString()
 	if err != nil {
 		return false
@@ -142,6 +142,31 @@ func (s *Store) WindowCounts(ctx context.Context, name string) map[string]int64 
 			out[w.name] = 0
 		}
 	}
+	// Valkey holds fast reservations, while PostgreSQL is the durable source
+	// of completed request history. Merge both so a gateway restart cannot
+	// forget an already-consumed daily or weekly allowance.
+	var durable struct {
+		minute int64
+		day    int64
+		week   int64
+	}
+	err := s.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE requested_at > now() - interval '1 minute'),
+		       COUNT(*) FILTER (WHERE requested_at > now() - interval '1 day'),
+		       COUNT(*) FILTER (WHERE requested_at > now() - interval '7 days')
+		FROM request_history WHERE account_name = $1`, name).
+		Scan(&durable.minute, &durable.day, &durable.week)
+	if err == nil {
+		if durable.minute > out["minute"] {
+			out["minute"] = durable.minute
+		}
+		if durable.day > out["day"] {
+			out["day"] = durable.day
+		}
+		if durable.week > out["week"] {
+			out["week"] = durable.week
+		}
+	}
 	return out
 }
 
@@ -199,12 +224,15 @@ func (s *Store) EligibleAccounts(ctx context.Context, model, protocol string, th
 	var out []*Account
 	for _, a := range s.snapshotAccounts() {
 		if protocol != "" && a.Protocol2() != protocol {
-			// legacy carve-out: ollama accounts historically used openai protocol
-			if !(protocol == "ollama" && a.Protocol2() == "openai" && a.ProviderName() == "ollama") {
+			// Ollama exposes both its native /api dialect and an OpenAI-compatible
+			// /v1 dialect. Keep both eligible so an OpenAI client can fail over to
+			// an Ollama account when the requested model is available there.
+			if !((protocol == "ollama" && a.Protocol2() == "openai" && a.ProviderName() == "ollama") ||
+				(protocol == "openai" && a.Protocol2() == "ollama" && a.ProviderName() == "ollama")) {
 				continue
 			}
 		}
-		if s.isCoolingDown(ctx, a.Name) {
+		if s.IsCoolingDown(ctx, a.Name) {
 			continue
 		}
 		if model != "" && !a.Wildcard {
@@ -241,6 +269,24 @@ func (s *Store) EligibleAccounts(ctx context.Context, model, protocol string, th
 	return out
 }
 
+func (s *Store) EligibleAccountsForTask(ctx context.Context, model, protocol, task, inputModality, outputModality string, threshold float64) []*Account {
+	accounts := s.EligibleAccounts(ctx, model, protocol, threshold)
+	if task == "" {
+		return accounts
+	}
+	allowed := map[string]bool{}
+	for _, name := range s.AccountsForTask(ctx, model, task, inputModality, outputModality) {
+		allowed[name] = true
+	}
+	out := make([]*Account, 0, len(accounts))
+	for _, account := range accounts {
+		if allowed[account.Name] {
+			out = append(out, account)
+		}
+	}
+	return out
+}
+
 // upstreamAuthHeaders builds provider-specific auth headers. OAuth accounts
 // delegate to the control-plane token broker via PlatformAPI (token stays
 // server-side); token-file accounts are read by the control-plane too.
@@ -260,6 +306,9 @@ func (s *Store) UpstreamAuthHeaders(ctx context.Context, a *Account) map[string]
 			"x-api-key":         *a.APIKey,
 			"anthropic-version": "2023-06-01",
 		}
+	}
+	if strings.EqualFold(a.ProviderName(), "fal") || strings.Contains(strings.ToLower(a.BaseURL), "api.fal.ai") || strings.Contains(strings.ToLower(a.BaseURL), "fal.run") {
+		return map[string]string{"Authorization": "Key " + *a.APIKey}
 	}
 	return map[string]string{"Authorization": "Bearer " + *a.APIKey}
 }
@@ -315,7 +364,7 @@ func (s *Store) SnapshotAccountStatus(ctx context.Context) []AccountStatus {
 	var out []AccountStatus
 	for _, a := range s.snapshotAccounts() {
 		st := AccountStatus{Name: a.Name}
-		st.CoolingDown = s.isCoolingDown(ctx, a.Name)
+		st.CoolingDown = s.IsCoolingDown(ctx, a.Name)
 		counts := s.WindowCounts(ctx, a.Name)
 		st.HasCapacity = true
 		lim := a.Limits
@@ -337,4 +386,5 @@ func (s *Store) SnapshotAccountStatus(ctx context.Context) []AccountStatus {
 var HopHeaders = map[string]struct{}{
 	"host": {}, "content-length": {}, "connection": {}, "accept-encoding": {},
 	"authorization": {}, "x-api-key": {}, "anthropic-version": {},
+	"x-simha-task": {}, "x-simha-input-modality": {}, "x-simha-output-modality": {},
 }

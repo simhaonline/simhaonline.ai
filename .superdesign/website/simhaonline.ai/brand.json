@@ -1,0 +1,130 @@
+{
+  "meta": {
+    "url": "https://simhaonline.ai/",
+    "title": "Simha Edge Router — multi-provider AI gateway",
+    "description": "One OpenAI-compatible endpoint for every major LLM provider. Rolling-window rate limits, automatic failover, semantic caching.",
+    "language": "en",
+    "viewport": "width=device-width, initial-scale=1",
+    "themeColor": null,
+    "ogImage": null,
+    "ogTitle": "Simha Edge Router — multi-provider AI gateway",
+    "ogDescription": "One OpenAI-compatible endpoint for every major LLM provider. Rolling-window rate limits, automatic failover, semantic caching."
+  },
+  "theme": {
+    "mode": "dark",
+    "bodyBackground": "#0a0d12",
+    "isDark": true,
+    "confidence": 0.9
+  },
+  "brand": {
+    "name": "Simha Edge Router",
+    "favicon": {
+      "href": null,
+      "type": null
+    }
+  },
+  "colors": {
+    "dominant": [
+      {
+        "hex": "#e6e9f0",
+        "ratio": 0.502
+      },
+      {
+        "hex": "#8a93a6",
+        "ratio": 0.139
+      },
+      {
+        "hex": "#d4a643",
+        "ratio": 0.131
+      },
+      {
+        "hex": "#000000",
+        "ratio": 0.119
+      },
+      {
+        "hex": "#232a38",
+        "ratio": 0.085
+      },
+      {
+        "hex": "#11151d",
+        "ratio": 0.014
+      },
+      {
+        "hex": "#0a0d12",
+        "ratio": 0.004
+      },
+      {
+        "hex": "#171c26",
+        "ratio": 0.004
+      },
+      {
+        "hex": "#14100a",
+        "ratio": 0.002
+      }
+    ],
+    "palette": [
+      {
+        "hex": "#0a0d12",
+        "role": "background",
+        "source": "computed"
+      },
+      {
+        "hex": "#e6e9f0",
+        "role": "foreground",
+        "source": "computed"
+      },
+      {
+        "hex": "#d4a643",
+        "role": "primary",
+        "source": "heuristic"
+      }
+    ],
+    "cssVariables": {
+      "--panel": "#11151d",
+      "--accent-dim": "#8a6d2c",
+      "--muted": "#8a93a6",
+      "--warn": "#e2b93d",
+      "--text": "#e6e9f0",
+      "--panel-2": "#171c26",
+      "--ok": "#3ecf8e",
+      "--err": "#e5484d",
+      "--line": "#232a38",
+      "--accent": "#d4a643",
+      "--bg": "#0a0d12"
+    },
+    "gradients": []
+  },
+  "logo": {
+    "status": "unconfirmed",
+    "reason": "no_candidates",
+    "best": null,
+    "candidates": []
+  },
+  "fonts": {
+    "computed": [
+      {
+        "family": "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+        "weights": [
+          "400",
+          "700",
+          "600"
+        ],
+        "source": "system"
+      }
+    ],
+    "baseSizePx": 15
+  },
+  "confidence": {
+    "colorExtraction": 0.9,
+    "logoDetection": 0.2,
+    "fontDetection": 0.8
+  },
+  "screenshot": {
+    "url": "https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/brand/9e56d95b-b267-4e3e-b6fd-83c2ac85bc10/screenshot.png",
+    "width": 1920,
+    "height": 1080,
+    "sizeBytes": 166715,
+    "uploadedAt": "2026-09-05T23:25:22.958Z"
+  },
+  "assets": {}
+}

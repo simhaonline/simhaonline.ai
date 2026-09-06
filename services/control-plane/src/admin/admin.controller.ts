@@ -34,14 +34,14 @@ export class AdminController {
   async overview(@Req() req: Request, @Res() res: Response) {
     const user = await this.requireUser(req, ['admin', 'operator']);
     if (user.role === 'operator') {
-      const { rows } = await this.pool.query(`SELECT DISTINCT model FROM discovered_models ORDER BY model`);
+      const { rows } = await this.pool.query(`SELECT DISTINCT model FROM discovered_models WHERE enabled = true ORDER BY model`);
       return res.json({
         models: rows.map((r) => r.model),
         auth: { admin: false, role: 'operator' },
         operator_scope: 'models_only',
       });
     }
-    return res.json(await this.admin.overview());
+    return res.json({ ...(await this.admin.overview()), auth: { admin: true, role: user.role } });
   }
 
   @Post('models/refresh')
@@ -58,6 +58,38 @@ export class AdminController {
       // gateway unreachable — fall through to accepted (worker also refreshes)
     }
     return res.status(HttpStatus.ACCEPTED).json({ ok: true, started: true });
+  }
+
+  @Get('provider-models')
+  async providerModels(@Req() req: Request, @Res() res: Response) {
+    await this.requireUser(req, ['admin']);
+    return res.json({ models: await this.admin.providerModels() });
+  }
+
+  @Patch('provider-models')
+  async setProviderModel(@Req() req: Request, @Res() res: Response, @Body() body: Record<string, unknown>) {
+    await this.requireUser(req, ['admin']);
+    try {
+      return res.json(await this.admin.setProviderModel(body));
+    } catch (err: unknown) {
+      throw new HttpException({ error: (err as Error).message || 'unable to update provider model' }, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  @Get('orchestration/capabilities')
+  async orchestrationCapabilities(@Req() req: Request, @Res() res: Response) {
+    await this.requireUser(req, ['admin', 'operator']);
+    return res.json({ capabilities: await this.admin.orchestrationCapabilities() });
+  }
+
+  @Get('benchmarks')
+  async benchmarks(@Req() req: Request, @Res() res: Response) {
+    await this.requireUser(req, ['admin', 'operator']);
+    return res.json(await this.admin.benchmarks({
+      q: String(req.query.q || ''),
+      open_weights: String(req.query.open_weights || '') === 'true',
+      organization: String(req.query.organization || ''),
+    }));
   }
 
   @Post('accounts')
@@ -90,6 +122,19 @@ export class AdminController {
     return res.json({ ok: true });
   }
 
+  @Post('accounts/:name/test')
+  async testAccount(@Req() req: Request, @Res() res: Response, @Param('name') name: string) {
+    await this.requireUser(req, ['admin']);
+    try {
+      return res.json(await this.admin.testAccount(decodeURIComponent(name)));
+    } catch (err: unknown) {
+      throw new HttpException(
+        { error: (err as Error).message || 'provider test failed' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
   @Get('users')
   async users(@Req() req: Request, @Res() res: Response) {
     await this.requireUser(req, ['admin']);
@@ -107,7 +152,7 @@ export class AdminController {
     @Req() req: Request,
     @Res() res: Response,
     @Param('id') id: string,
-    @Body() body: { active?: boolean; role?: string },
+    @Body() body: { active?: boolean; role?: string; password?: string },
   ) {
     await this.requireUser(req, ['admin']);
     await this.admin.modifyUser(Number(id), body);

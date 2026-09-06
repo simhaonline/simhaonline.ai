@@ -7,7 +7,7 @@ as a polyglot production platform:
 |---|---|---|---|
 | Hot-path LLM router | **Golang** | `services/gateway` | 8080 |
 | Control plane (auth, admin, chat APIs) | **NestJS** | `services/control-plane` | 8081 |
-| Background worker (discovery, rollups, email, status) | **Python** | `services/worker` | 8082 |
+| Background worker (discovery, rollups, email, status) | **Python** | `services/worker` | 8001 |
 | Frontend (site, chat, dashboard, docs, status) | **Next.js** | `services/web` | 3000 |
 | Database | **PostgreSQL 16 + pgvector + TimescaleDB** | `database/` | 5433 (host) |
 | Cache / shared state / cooldowns / rate windows | **Valkey** | — | 6380 (host) |
@@ -82,10 +82,10 @@ as a polyglot production platform:
 database/           SQL migrations (extensions, schema, TimescaleDB, seed)
 docs/               Architecture, API contract, migration guide
 edge/               nginx edge proxy (hostname → service routing)
+frontend/           Next.js UI (marketing, workbench, control center)
 services/gateway/   Go hot-path router
 services/control-plane/  NestJS REST API
 services/worker/    Python background jobs
-services/web/       Next.js UI
 tools/migrate-sqlite/  One-shot SQLite → PostgreSQL data migration
 ```
 
@@ -98,6 +98,13 @@ make smoke                    # end-to-end checks
 ```
 
 ## Plesk reverse proxy (no nginx container in the stack)
+
+Canonical host roots are supported directly: `https://simhaonline.ai/` for marketing,
+`https://platform.simhaonline.ai/` for the control center, `https://chat.simhaonline.ai/`
+for the Workbench, `https://docs.simhaonline.ai/` for documentation,
+`https://status.simhaonline.ai/` for status, and `https://api.simhaonline.ai/` for the
+gateway API. The application internally rewrites the first four roots to their existing
+pages; users do not need to append `/chat`, `/dashboard`, `/docs`, or `/status`.
 
 Create the `simhaonline.ai` subscription in Plesk with a Let's Encrypt cert, add the
 extra vhosts (`chat.` / `platform.` / `status.` / `docs.` / `api.`) as **additional
@@ -130,7 +137,7 @@ location / {                      # web app; its BFF serves /api/* — EVERYTHIN
     proxy_set_header Connection "upgrade";
     proxy_buffering off;
     proxy_read_timeout 300s;
-    client_max_body_size 16m;
+    client_max_body_size 64m;
 }
 ```
 
@@ -146,20 +153,29 @@ location / {
     proxy_set_header Connection "upgrade";
     proxy_buffering off;
     proxy_read_timeout 300s;
-    client_max_body_size 16m;
+    client_max_body_size 64m;
 }
 ```
 
 ### chat.simhaonline.ai (chat workbench: web UI + control-plane APIs)
 
 ```nginx
+location = /chat/ws {                         # authenticated Intake Dock updates
+    proxy_pass http://152.53.67.111:8081/chat/ws;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+}
 location ~ ^/(auth|admin|billing)(/|$) {   # control-plane APIs
     proxy_pass http://152.53.67.111:8081;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
     proxy_read_timeout 120s;
-    client_max_body_size 16m;
+    client_max_body_size 64m;
 }
 location / {                               # chat UI + its BFF (/api/*)
     proxy_pass http://152.53.67.111:3002;
@@ -170,7 +186,7 @@ location / {                               # chat UI + its BFF (/api/*)
     proxy_set_header Connection "upgrade";
     proxy_buffering off;
     proxy_read_timeout 300s;
-    client_max_body_size 16m;
+    client_max_body_size 64m;
 }
 ```
 

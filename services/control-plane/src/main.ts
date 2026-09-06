@@ -7,12 +7,26 @@ import { AppModule } from './app.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthService } from './auth/auth.service';
 import { json, urlencoded } from 'express';
-import type { Request as ExRequest } from 'express';
+import type { Request as ExRequest, Response as ExResponse, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
+import { WsAdapter } from '@nestjs/platform-ws';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'], rawBody: true });
+  app.useWebSocketAdapter(new WsAdapter(app));
   const port = parseInt(process.env.PORT || '8081', 10);
+  const allowedOrigins = (process.env.CORS_ORIGINS ||
+    'https://simhaonline.ai,https://chat.simhaonline.ai,https://platform.simhaonline.ai,https://docs.simhaonline.ai,https://status.simhaonline.ai')
+    .split(',').map((origin) => origin.trim()).filter(Boolean);
+  app.enableCors({ origin: allowedOrigins, credentials: true, methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Request-ID'] });
+  app.use((_req: ExRequest, res: ExResponse, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    next();
+  });
   app.use(cookieParser());
   app.use(json({
     limit: '16mb',

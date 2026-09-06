@@ -1,7 +1,9 @@
+import HomeMarketing from '@/components/HomeMarketing';
 import TopBar from '@/components/TopBar';
 import Link from 'next/link';
+export default HomeMarketing;
 
-export default function Home() {
+function LegacyHome() {
   return (
     <>
       <TopBar />

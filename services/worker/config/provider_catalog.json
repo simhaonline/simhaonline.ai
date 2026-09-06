@@ -21,7 +21,8 @@
     {"id": "pollinations", "name": "Pollinations", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
     {"id": "siliconflow", "name": "SiliconFlow", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
     {"id": "azure-ai-foundry", "name": "Azure OpenAI / AI Foundry", "protocol": "openai", "auth": "api-key", "api_prefix": "/v1"},
-    {"id": "bedrock", "name": "Amazon Bedrock via Gateway", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"}
+    {"id": "bedrock", "name": "Amazon Bedrock via Gateway", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
+    {"id": "fal", "name": "fal.ai Media APIs", "protocol": "openai", "auth": "key", "api_prefix": "", "default_base_url": "https://fal.run", "verification_note": "fal uses Authorization: Key and discovers endpoints through https://api.fal.ai/v1/models."}
   ],
   "fast_inference": [
     {"id": "groq", "name": "Groq", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
@@ -29,7 +30,7 @@
     {"id": "nvidia-nim", "name": "NVIDIA NIM", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
     {"id": "sambanova", "name": "SambaNova Systems", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
     {"id": "cerebras", "name": "Cerebras", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"},
-    {"id": "huggingface", "name": "Hugging Face Inference", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1"}
+    {"id": "huggingface", "name": "Hugging Face Router", "protocol": "openai", "auth": "bearer", "api_prefix": "/v1", "default_base_url": "https://router.huggingface.co", "verification_note": "Use a Hugging Face access token with Inference Providers permission (hf_...)."}
   ],
   "china_asia": [
     {"id": "alibaba-model-studio", "name": "Alibaba Model Studio / Qwen", "protocol": "openai", "auth": "bearer", "api_prefix": "/compatible-mode/v1"},
