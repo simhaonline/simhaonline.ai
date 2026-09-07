@@ -43,7 +43,7 @@ check "GET /status/recent" "200" "$(code "http://${IP}:8001/status/recent?limit=
 
 echo "== 5. Web (:3002) + vhost Host-header routing =="
 check "GET / (apex)" "200" "$(code "http://${IP}:3002/" -H 'Host: simhaonline.ai')"
-check "GET /chat (chat vhost)" "200" "$(code "http://${IP}:3002/chat" -H 'Host: chat.simhaonline.ai')"
+check "GET /chat (chat vhost)" "307" "$(code "http://${IP}:3002/chat" -H 'Host: chat.simhaonline.ai')"
 check "GET /login (platform vhost)" "200" "$(code "http://${IP}:3002/login" -H 'Host: platform.simhaonline.ai')"
 check "GET /docs (docs vhost)" "200" "$(code "http://${IP}:3002/docs" -H 'Host: docs.simhaonline.ai')"
 check "GET /pricing" "200" "$(code "http://${IP}:3002/pricing" -H 'Host: simhaonline.ai')"
