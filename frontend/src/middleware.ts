@@ -29,9 +29,24 @@ export function middleware(request: NextRequest) {
     }
   }
 
+  // Audit C1 (restored after the route-group migration): gate the Workbench
+  // the same way. Public share views (/chat/<id>/share) stay accessible
+  // without a session (spec decision: share pages are public).
+  const p = request.nextUrl.pathname;
+  const isWorkbench = p === '/chat' || p.startsWith('/chat/');
+  const isShareView = /^\/chat\/[^/]+\/share/.test(p);
+  if (isWorkbench && !isShareView) {
+    const token = request.cookies.get('simha_session')?.value;
+    if (!token) {
+      const login = new URL('/login', request.url);
+      login.searchParams.set('next', p);
+      return NextResponse.redirect(login);
+    }
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*'],
+  matcher: ['/', '/dashboard/:path*', '/chat', '/chat/:path*'],
 };
