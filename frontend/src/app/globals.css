@@ -191,6 +191,18 @@ html:not(.dark) [cmdk-list] { background-color: #ffffff !important; }
 .composer-shell { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); }
 html:not(.dark) .composer-shell { box-shadow: 0 4px 16px rgba(16, 24, 40, 0.08); }
 html:not(.dark) .bg-gradient-to-t.from-zinc-950.via-zinc-950 { --tw-gradient-stops: var(--tw-gradient-from), rgba(247, 248, 250, 0) 85%; background-image: linear-gradient(to top, #f7f8fa 0%, rgba(247, 248, 250, 0.6) 55%, rgba(247, 248, 250, 0) 100%); }
+
+/* PWA safe areas: keep interactive chrome clear of notches/home indicator */
+.wb-root { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.wb-root aside { padding-top: env(safe-area-inset-top, 0); }
+@supports (padding: max(0px)) {
+  .wb-root .sticky.bottom-0 > div:first-child { padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px)); }
+}
+/* Touch targets ≥44px on coarse pointers */
+@media (pointer: coarse) {
+  .wb-root button:not([aria-label='Send message']) { min-height: 36px; }
+  .wb-root textarea { font-size: 16px; } /* prevent iOS zoom-on-focus */
+}
 html:not(.dark) .hover\:border-zinc-600:hover,
 html:not(.dark) .hover\:border-zinc-500:hover { border-color: #b9c2cf !important; }
 html:not(.dark) .hover\:text-zinc-100:hover,

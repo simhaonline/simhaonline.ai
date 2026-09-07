@@ -42,6 +42,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const [tab, setTab] = useState<Tab>('Chats');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<number | null>(null);
@@ -72,6 +73,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
     try {
       const c = await wbApi.conversations.create();
       await loadConversations();
+      setDrawerOpen(false);
       router.push(`/chat/${c.id}`);
     } finally {
       setCreating(false);
@@ -91,8 +93,18 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
     .filter((x) => x.items.length);
 
   return (
-    <div className="wb-root flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
-      <aside className="flex w-[260px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-900">
+    <div className="wb-root flex h-[100dvh] overflow-hidden bg-zinc-950 text-zinc-100">
+      {/* mobile scrim */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-40 bg-black/60 lg:hidden" onClick={() => setDrawerOpen(false)} aria-hidden />
+      )}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex w-[280px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-900 transition-transform duration-200 lg:static lg:translate-x-0',
+          drawerOpen ? 'translate-x-0' : '-translate-x-full',
+        )}
+        aria-label="Workbench navigation"
+      >
         {/* logo row */}
         <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-3">
           <Link href="https://platform.simhaonline.ai" aria-label="Back to Control Center" className="flex items-center gap-2 text-sm font-semibold">
@@ -168,6 +180,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
                         if (pathname === `/chat/${c.id}`) router.push('/chat');
                         await loadConversations();
                       }}
+                      onNavigate={() => setDrawerOpen(false)}
                     />
                   ))}
                 </div>
@@ -191,6 +204,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
                         if (pathname === `/chat/${c.id}`) router.push('/chat');
                         await loadConversations();
                       }}
+                      onNavigate={() => setDrawerOpen(false)}
                     />
                   ))}
                 </div>
@@ -244,6 +258,24 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
       </aside>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onNewConversation={() => void newConversation()} />
+      {/* mobile top bar — hamburger + brand; hidden on ≥lg where the sidebar is persistent */}
+      <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-2.5 lg:hidden">
+        <button
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Open navigation menu"
+          className="grid h-9 w-9 place-items-center rounded-lg text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+        >
+          <span className="flex flex-col gap-1" aria-hidden>
+            <span className="block h-0.5 w-5 bg-current" />
+            <span className="block h-0.5 w-5 bg-current" />
+            <span className="block h-0.5 w-5 bg-current" />
+          </span>
+        </button>
+        <span className="flex items-center gap-1.5 text-sm font-semibold">
+          <span className="grid h-5 w-5 place-items-center rounded-md bg-violet-500 text-black" aria-hidden>⌁</span>
+          Simha Workbench
+        </span>
+      </div>
       <main className="flex min-w-0 flex-1 flex-col">{children}</main>
     </div>
   );
@@ -303,7 +335,7 @@ function ProjectsSection() {
 }
 
 function ConversationRow({
-  c, active, renaming, renameText, setRenameText, onRenameSave, onStartRename, onPin, onDelete,
+  c, active, renaming, renameText, setRenameText, onRenameSave, onStartRename, onPin, onDelete, onNavigate,
 }: {
   c: { id: number; title: string; updated_at: string };
   active: boolean;
@@ -314,6 +346,7 @@ function ConversationRow({
   onStartRename: () => void;
   onPin: () => void;
   onDelete: () => void;
+  onNavigate?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -329,6 +362,7 @@ function ConversationRow({
       ) : (
         <Link
           href={`/chat/${c.id}`}
+          onClick={onNavigate}
           className={cn(
             'flex items-center justify-between rounded-lg px-2.5 py-2 text-[13px] transition-colors hover:bg-zinc-800/80',
             active && 'bg-zinc-800 text-zinc-100',

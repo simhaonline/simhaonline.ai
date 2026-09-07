@@ -1,0 +1,66 @@
+{
+  "name": "Simha Workbench — AI Chat & Router",
+  "short_name": "Simha",
+  "description": "One AI chat for every model: text, image, video, audio, translation, deep research — routed across all major providers.",
+  "id": "/",
+  "start_url": "/chat",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New conversation",
+      "short_name": "New chat",
+      "description": "Start a new AI conversation",
+      "url": "/chat?new=1",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Translate",
+      "short_name": "Translate",
+      "description": "Open the DeepL-style translator",
+      "url": "/chat?translate=1"
+    },
+    {
+      "name": "Image generation",
+      "short_name": "Image",
+      "description": "Generate an image",
+      "url": "/chat?image=1"
+    }
+  ]
+}
