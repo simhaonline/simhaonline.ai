@@ -626,6 +626,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 		if !s.st.Reserve(ctx, acc, s.cfg.UsageThreshold) {
 			continue
 		}
+		dispatchStart := time.Now()
 
 		req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(body))
 		if err != nil {
@@ -644,6 +645,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 		}
 
 		resp, err := s.st.DoUpstream(ctx, req, s.cfg.UpstreamTimeout)
+		dispatchMS := time.Since(dispatchStart).Milliseconds()
 		if err != nil {
 			log.Printf("[forward] %s: %v", acc.Name, err)
 			s.st.SetCooldown(ctx, acc.Name, 10)
@@ -722,11 +724,13 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 
 		// record usage for non-streaming JSON responses
 		if !isStreamingBody(resp) {
-			recordUsageFrom(resp, acc.Name, model, ac, s.st)
+			recordUsageFrom(resp, acc.Name, model, ac, s.st, dispatchMS)
 		}
 		s.st.ClearStrikes(ctx, acc.Name)
 		s.st.MarkUsed(ctx, acc.Name)
 		s.streamUpstream(w, resp, path)
+		// streaming usage + measured TTFB (worker rolls into route scores)
+		_ = s.st.RecordUsage(ctx, acc.Name, model, 200, 0, 0, 0, ac.UserID, ac.ClientKeyID, dispatchMS)
 		return
 	}
 
@@ -1078,7 +1082,7 @@ func isStreamingBody(resp *http.Response) bool {
 }
 
 // recordUsageFrom parses usage from a completed JSON response and stores it.
-func recordUsageFrom(resp *http.Response, account, model string, ac *authCtx, st *store.Store) {
+func recordUsageFrom(resp *http.Response, account, model string, ac *authCtx, st *store.Store, dispatchMS int64) {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	resp.Body = io.NopCloser(bytes.NewReader(raw))
 	if err != nil {
@@ -1117,7 +1121,7 @@ func recordUsageFrom(resp *http.Response, account, model string, ac *authCtx, st
 		usageModel = parsed.Model
 	}
 	_ = st.RecordUsage(context.Background(), account, usageModel, int64(resp.StatusCode),
-		int64(prompt), int64(completion), int64(total), ac.UserID, ac.ClientKeyID)
+		int64(prompt), int64(completion), int64(total), ac.UserID, ac.ClientKeyID, dispatchMS)
 }
 
 func min64(a, b int64) int64 {

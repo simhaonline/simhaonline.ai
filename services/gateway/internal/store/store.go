@@ -126,12 +126,18 @@ func DefaultPolicy() Policy {
 }
 
 // RecordUsage writes one telemetry row (worker rolls it up later).
-func (s *Store) RecordUsage(ctx context.Context, account, model string, status, prompt, completion, total int64, userID, clientKeyID *int64) error {
+// latencyMS is the measured dispatch→first-response time (TTFB) when known;
+// pass 0 when not measured.
+func (s *Store) RecordUsage(ctx context.Context, account, model string, status, prompt, completion, total int64, userID, clientKeyID *int64, latencyMS ...int64) error {
+	latency := int64(0)
+	if len(latencyMS) > 0 {
+		latency = latencyMS[0]
+	}
 	_, err := s.Pool.Exec(ctx, `
 		INSERT INTO request_history
-			(requested_at, account_name, model, status, prompt_tokens, completion_tokens, total_tokens, user_id, client_key_id)
-		VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8)`,
-		account, model, status, prompt, completion, total, userID, clientKeyID)
+			(requested_at, account_name, model, status, prompt_tokens, completion_tokens, total_tokens, user_id, client_key_id, latency_ms)
+		VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, 0))`,
+		account, model, status, prompt, completion, total, userID, clientKeyID, latency)
 	if err != nil {
 		return err
 	}

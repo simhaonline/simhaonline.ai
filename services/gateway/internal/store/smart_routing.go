@@ -92,6 +92,15 @@ func routeTotal(s RouteScore, mode string) float64 {
 	if s.LatencyMS > 0 {
 		latency = clamp(100-(s.LatencyMS/20), 0, 100)
 	}
+	// Reasoning-style model families stream a hidden thinking trace before
+	// the visible answer — measured ~2x visible latency for chat. In
+	// default/fast/cost modes demote them so standard text models win the
+	// default pool; they remain fully available when explicitly selected
+	// (and in quality mode, where their ELO still counts).
+	if isReasoningFamily(s.Model) && strings.ToLower(strings.TrimSpace(mode)) != "quality" {
+		latency = clamp(latency*0.5, 0, 100)
+		elo = clamp(elo*0.6, 0, 100)
+	}
 	cost := 100.0
 	if total := s.InputCost + s.OutputCost; total > 0 {
 		cost = clamp(100-(total*20), 0, 100)
@@ -113,3 +122,21 @@ func routeTotal(s RouteScore, mode string) float64 {
 }
 
 func clamp(v, low, high float64) float64 { return math.Max(low, math.Min(high, v)) }
+
+// isReasoningFamily reports whether a model id belongs to a family known to
+// stream hidden reasoning tokens before the visible answer. Substring-based
+// to catch versioned ids (deepseek-v4-flash:0731, qwq-32b-preview, …).
+func isReasoningFamily(model string) bool {
+	m := strings.ToLower(model)
+	families := []string{
+		"deepseek-r", "deepseek-v", "qwq", "o1", "o3", "o4-",
+		"reasoner", "-thinking", "thinking-", "r1-", "magistral",
+		"phi-4-reasoning", "glm-z",
+	}
+	for _, f := range families {
+		if strings.Contains(m, f) {
+			return true
+		}
+	}
+	return false
+}

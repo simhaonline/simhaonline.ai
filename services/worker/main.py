@@ -221,6 +221,22 @@ async def rollups():
             """)
             await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_usage_daily_uid ON user_usage_daily(user_id)")
             await c.execute("REFRESH MATERIALIZED VIEW user_usage_daily")
+            # latency rollup: feed measured dispatch latency into the router's
+            # model_route_scores so SelectModel learns real upstream speeds
+            # (measured TTFB from the gateway's request_history.latency_ms).
+            await c.execute("""
+                INSERT INTO model_route_scores(model, task_slug, elo, quality_score, reliability_score, avg_latency_ms, battle_count)
+                SELECT r.model, 'text-generation', 1500, 60, 90,
+                       ROUND(AVG(r.latency_ms))::int, COUNT(*)
+                FROM request_history r
+                WHERE r.latency_ms IS NOT NULL AND r.status = 200
+                  AND r.requested_at > now() - interval '24 hours'
+                GROUP BY r.model
+                ON CONFLICT (model, task_slug) DO UPDATE SET
+                    avg_latency_ms = EXCLUDED.avg_latency_ms,
+                    updated_at = now()
+            """)
+            await c.execute("DELETE FROM model_route_scores WHERE avg_latency_ms IS NULL AND task_slug = 'text-generation' AND updated_at < now() - interval '48 hours'")
         LOG.info("usage_daily rollup refreshed")
     except Exception as exc:  # noqa: BLE001
         LOG.warning("rollup failed: %s", exc)
