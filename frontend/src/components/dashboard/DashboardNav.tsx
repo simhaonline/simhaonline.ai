@@ -27,7 +27,7 @@ const OPS_LINKS = [
   { href: '/control-center#judge', label: 'LLM Judge', icon: Gavel },
   { href: '/control-center#discovery', label: 'Discovery', icon: Compass },
   { href: '/control-center#scrapers', label: 'Scrapers', icon: Rss },
-  { href: '/control-center#arena', label: 'Arena', icon: Swords },
+  { href: '/control-center#arena', label: 'Leaderboard', icon: Swords },
 ];
 
 export default function DashboardNav() {
