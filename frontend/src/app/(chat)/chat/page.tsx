@@ -22,14 +22,18 @@ export default function ChatEmptyPage() {
   const { setDraft } = useChat();
 
   const sendWith = useCallback(async (text: string) => {
-    setDraft(text);
     try {
+      // Pass the first message to the conversation page via sessionStorage —
+      // the composer's submit() clears the zustand draft synchronously after
+      // onSend returns, so a store-based handoff races and loses the text.
+      // sessionStorage survives the client navigation untouched.
+      sessionStorage.setItem('simha.pending_first_message', text);
       const c = await wbApi.conversations.create(text.slice(0, 80));
       router.push(`/chat/${c.id}`);
     } catch {
       // session issue — the layout guard will surface sign-in
     }
-  }, [router, setDraft]);
+  }, [router]);
 
   return (
     <div className="flex h-full flex-col">

@@ -61,6 +61,22 @@ export default function ConversationPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Pending first message: the empty-state composer stashes the typed text
+  // in sessionStorage and navigates here — send it once on arrival
+  // (ChatGPT-style "type on the home screen" flow). Without this the
+  // message was silently dropped: conversation created, nothing sent.
+  const pendingSentRef = useRef(false);
+  const sendRef = useRef<typeof send | null>(null);
+  useEffect(() => {
+    if (pendingSentRef.current) return;
+    const pending = sessionStorage.getItem('simha.pending_first_message');
+    if (pending && pending.trim()) {
+      pendingSentRef.current = true;
+      sessionStorage.removeItem('simha.pending_first_message');
+      void sendRef.current?.({ text: pending.trim(), fileIds: [], mediaMode: null, taskMode: null });
+    }
+  }, []);
+
   // auto-scroll on new content
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -167,6 +183,7 @@ export default function ConversationPage() {
     }
     await runStream(history);
   }
+  sendRef.current = send;
 
   async function rate(message: BubbleMessage, rating: 'up' | 'down') {
     if (typeof message.id === 'number') {
