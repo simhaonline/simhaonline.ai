@@ -227,7 +227,7 @@ export function InputBar({
         )}
 
         {/* the composer shell — the only bordered element */}
-        <div className="rounded-[22px] border border-zinc-700 bg-zinc-900 shadow-[0_10px_40px_rgba(0,0,0,0.45)] transition-colors focus-within:border-zinc-500 hover:border-zinc-600">
+        <div className="composer-shell rounded-[22px] border border-zinc-700 bg-zinc-900 transition-colors focus-within:border-zinc-500 hover:border-zinc-600">
           <textarea
             ref={textareaRef}
             value={draft}

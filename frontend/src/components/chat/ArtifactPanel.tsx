@@ -78,11 +78,12 @@ export function ArtifactPanel({
   return (
     <aside
       className={cn(
-        'flex h-full flex-col border-l border-zinc-800 bg-zinc-900 transition-transform duration-200',
+        'absolute inset-y-0 right-0 z-20 flex h-full flex-col border-l border-zinc-800 bg-zinc-900 shadow-2xl transition-transform duration-200',
         artifact.open ? 'translate-x-0' : 'translate-x-full',
       )}
       style={{ width }}
       aria-label="Artifact panel"
+      aria-hidden={!artifact.open}
     >
       {/* draggable divider */}
       <div

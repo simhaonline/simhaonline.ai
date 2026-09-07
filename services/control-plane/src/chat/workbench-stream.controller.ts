@@ -174,22 +174,39 @@ export class WorkbenchStreamController {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
+        let rewritten = '';
         for (const line of chunk.split('\n')) {
           const t = line.trim();
-          if (!t.startsWith('data:')) continue;
+          if (!t.startsWith('data:')) { rewritten += line + '\n'; continue; }
           const payload = t.slice(5).trim();
-          if (payload === '[DONE]') continue;
+          if (payload === '[DONE]') { rewritten += line + '\n'; continue; }
           try {
             const j = JSON.parse(payload) as {
-              choices?: Array<{ delta?: { content?: string } }>;
+              choices?: Array<{ delta?: { content?: string; reasoning?: string } }>;
               usage?: { completion_tokens?: number };
             };
             if (j.usage?.completion_tokens) completionTokens = j.usage.completion_tokens;
-            const delta = j.choices?.[0]?.delta?.content;
-            if (delta) content += delta;
-          } catch { /* partial json */ }
+            const deltaObj = j.choices?.[0]?.delta;
+            if (deltaObj) {
+              const text = deltaObj.content || '';
+              const reasoning = (deltaObj as { reasoning?: string }).reasoning || '';
+              if (text) content += text;
+              // reasoning-style models (ollama deepseek etc.) stream the
+              // answer in a non-standard `reasoning` field with empty
+              // content — normalize to `content` so every OpenAI-strict
+              // client renders the answer instead of an empty bubble.
+              if (!text && reasoning) {
+                content += reasoning;
+                deltaObj.content = reasoning;
+                delete (deltaObj as { reasoning?: string }).reasoning;
+              }
+            }
+            rewritten += 'data: ' + JSON.stringify(j) + '\n';
+          } catch {
+            rewritten += line + '\n'; // partial json — pass through
+          }
         }
-        res.write(chunk);
+        res.write(rewritten);
       }
       await finalize();
       res.write('data: [DONE]\n\n');

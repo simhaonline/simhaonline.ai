@@ -197,7 +197,7 @@ export function TranslatePane({
   return (
     <div className="sticky bottom-0 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent pb-3 pt-2">
       <div className="mx-auto w-full max-w-4xl px-4">
-        <div className="rounded-2xl border border-zinc-700 bg-zinc-900 shadow-[0_10px_40px_rgba(0,0,0,0.45)]">
+        <div className="composer-shell rounded-2xl border border-zinc-700 bg-zinc-900">
           {/* language bar */}
           <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
             <div className="flex items-center gap-1">

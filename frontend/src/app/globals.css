@@ -184,6 +184,13 @@ html:not(.dark) [cmdk-input] { color: #161d29 !important; }
 html:not(.dark) [cmdk-input]::placeholder { color: #6c7789 !important; }
 html:not(.dark) [cmdk-group-heading] { color: #6c7789 !important; }
 html:not(.dark) [cmdk-list] { background-color: #ffffff !important; }
+
+/* Composer shell: theme-aware elevation. Dark keeps the deep shadow; light
+   gets a subtle one so the gradient band above the composer doesn't read as
+   a stray gray stripe across the page. */
+.composer-shell { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); }
+html:not(.dark) .composer-shell { box-shadow: 0 4px 16px rgba(16, 24, 40, 0.08); }
+html:not(.dark) .bg-gradient-to-t.from-zinc-950.via-zinc-950 { --tw-gradient-stops: var(--tw-gradient-from), rgba(247, 248, 250, 0) 85%; background-image: linear-gradient(to top, #f7f8fa 0%, rgba(247, 248, 250, 0.6) 55%, rgba(247, 248, 250, 0) 100%); }
 html:not(.dark) .hover\:border-zinc-600:hover,
 html:not(.dark) .hover\:border-zinc-500:hover { border-color: #b9c2cf !important; }
 html:not(.dark) .hover\:text-zinc-100:hover,
