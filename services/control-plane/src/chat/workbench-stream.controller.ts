@@ -89,10 +89,10 @@ export class WorkbenchStreamController {
     // mode router: media modes pick a capability model; task modes (translate/
     // code/vision) set the gateway task header so routing respects capability.
     const mode = (String(body.mode || '').toLowerCase() || 'chat') as WorkbenchMode;
-    const spec = MODES[mode] || MODES.chat;
     const mediaMode = String(body.output_modality || '').toLowerCase();
     const effectiveMode = (['image', 'video', 'audio'].includes(mediaMode)
       ? mediaMode : mode) as WorkbenchMode;
+    const spec = MODES[effectiveMode] || MODES.chat;
     const isMedia = ['image', 'video', 'audio'].includes(effectiveMode);
 
     let model = String(body.model || 'auto');

@@ -35,14 +35,19 @@ export async function pickModelForMode(
   const spec = MODES[mode];
   if (!spec) return null;
 
-  // 1) capability record with an enabled discovered model
+  // 1) capability record with an enabled discovered model — prefer
+  //    providers with working media APIs (openai images, qwen dashscope),
+  //    then fal. Provider is derived from the account behind the model.
   if (mode !== 'chat' && mode !== 'research' && mode !== 'code' && mode !== 'web-search') {
     const { rows } = await pool.query(
-      `SELECT dm.model FROM model_capabilities mc
+      `SELECT dm.model, a.provider
+       FROM model_capabilities mc
        JOIN discovered_models dm ON dm.model = mc.model AND dm.enabled = true
+       JOIN accounts a ON a.name = mc.account_name
        WHERE mc.capability_slug = $1
-       GROUP BY dm.model
-       ORDER BY COUNT(DISTINCT mc.account_name) DESC
+       GROUP BY dm.model, a.provider
+       ORDER BY CASE a.provider WHEN 'alibaba-model-studio' THEN 0 WHEN 'openai' THEN 1 ELSE 2 END,
+                COUNT(DISTINCT mc.account_name) DESC
        LIMIT 1`,
       [spec.taskSlug]);
     if (rows.length) return { model: rows[0].model as string, kind: 'capability' };

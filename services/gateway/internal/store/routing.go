@@ -313,6 +313,15 @@ func (s *Store) UpstreamAuthHeaders(ctx context.Context, a *Account) map[string]
 	return map[string]string{"Authorization": "Bearer " + *a.APIKey}
 }
 
+// UpstreamAPIKey returns the account's raw API key (media adapters need the
+// bare key; chat dispatch uses UpstreamAuthHeaders).
+func (s *Store) UpstreamAPIKey(ctx context.Context, a *Account) string {
+	if a.APIKey == nil || *a.APIKey == "" {
+		return s.oauthToken(ctx, a)
+	}
+	return *a.APIKey
+}
+
 // oauthToken asks the control-plane for a valid upstream access token
 // (it owns the encrypted credentials + refresh logic).
 func (s *Store) oauthToken(ctx context.Context, a *Account) string {

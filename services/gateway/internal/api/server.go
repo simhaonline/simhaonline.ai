@@ -575,10 +575,10 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 			}
 		}
 
-		// fal.ai media adapter: fal has no /v1/chat/completions — translate
-		// chat payloads into its native synchronous model call. Without this
-		// every media request 404s and silently cools the account down.
-		if isFalAccount(acc.ProviderName(), acc.BaseURL) && (path == "chat/completions" || path == "completions") {
+		// Multi-provider media adapter: translate chat payloads into each
+		// provider's native media API (fal.run, DashScope, OpenAI images).
+		// Without this every media request 404s or returns empty messages.
+		if path == "chat/completions" || path == "completions" {
 			var falData map[string]any
 			if err := json.Unmarshal(body, &falData); err == nil {
 				kind := falTaskFromModality(outputModality, task)
@@ -589,20 +589,29 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 					prompt := lastUserText(falData)
 					if prompt != "" {
 						aspect, _ := falData["aspect_ratio"].(string)
-						duration := int(falData["duration_seconds"].(float64)) // 0 when absent
-						url, usedKind, err := falGenerate(ctx, s.st.HTTPClient(), s.st.UpstreamAuthHeaders(ctx, acc), model, prompt, kind, aspect, duration)
-						if err != nil {
-							log.Printf("[fal-media] %s: %v", acc.Name, err)
-							s.st.SetCooldown(ctx, acc.Name, 30)
-							continue
+						duration := 0
+						if d, ok := falData["duration_seconds"].(float64); ok {
+							duration = int(d)
 						}
-						s.st.ClearStrikes(ctx, acc.Name)
-						s.st.MarkUsed(ctx, acc.Name)
-						_ = s.st.RecordUsage(ctx, acc.Name, model, 200, 0, int64(len(prompt)), 10, ac.UserID, ac.ClientKeyID)
-						w.Header().Set("Content-Type", "application/json")
-						w.WriteHeader(http.StatusOK)
-						_, _ = w.Write(falChatResponse(model, url, usedKind, len(prompt)))
-						return
+						url, usedKind, err := pickMediaAdapter(ctx, s.st, acc, model, prompt, kind, aspect, duration)
+						if err != nil {
+							if err == errNoMediaAdapter {
+								// fall through to plain chat proxy (native-multimodal
+								// models like Gemini image via TokenRouter)
+							} else {
+								log.Printf("[media] %s: %v", acc.Name, err)
+								s.st.SetCooldown(ctx, acc.Name, 30)
+								continue
+							}
+						} else {
+							s.st.ClearStrikes(ctx, acc.Name)
+							s.st.MarkUsed(ctx, acc.Name)
+							_ = s.st.RecordUsage(ctx, acc.Name, model, 200, 0, int64(len(prompt)), 10, ac.UserID, ac.ClientKeyID)
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusOK)
+							_, _ = w.Write(falChatResponse(model, url, usedKind, len(prompt)))
+							return
+						}
 					}
 				}
 			}
