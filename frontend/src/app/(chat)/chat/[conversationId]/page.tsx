@@ -11,6 +11,7 @@ import { wbApi, ApiError, type V1Message } from '@/lib/wb-api';
 import { useChat, type ChatMessage } from '@/store/chat';
 import { streamChat } from '@/lib/streaming';
 import { MessageBubble, type BubbleMessage, type MessageActions } from '@/components/chat/MessageBubble';
+import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
 import { ArtifactPanel, type ArtifactState } from '@/components/chat/ArtifactPanel';
 import { MessageListErrorBoundary } from '@/components/chat/MessageListErrorBoundary';
 import { InputBar } from '@/components/chat/InputBar';
@@ -318,6 +319,16 @@ export default function ConversationPage() {
                     streaming={isStreaming && useChat.getState().streamingMessageId === m.id}
                   />
                 ))}
+                {/* Thinking indicator: visible the whole time an AI request is
+                    in flight (before first token, during tool use, research,
+                    translation, media generation) so the chat never looks
+                    dead. Disappears when the stream finalizes. */}
+                {isStreaming && !useChat.getState().streamingMessageId && (
+                  <ThinkingIndicator />
+                )}
+                {isStreaming && useChat.getState().streamingMessageId && (
+                  <ThinkingIndicator inline label="Generating" />
+                )}
                 {streamError && (
                   <Card className="mx-auto max-w-md border-red-500/40 bg-red-500/5 p-4 text-center">
                     <p className="text-sm text-red-400">Something went wrong — {streamError}</p>

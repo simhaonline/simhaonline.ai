@@ -194,5 +194,15 @@ export const api = {
     invoices: () => request<{ invoices: Invoice[] }>('/api/v1/billing/invoices'),
   },
   benchmarks: () => request<{ models: BenchmarkModel[] }>('/api/v1/benchmarks'),
+  // ── admin (admin/api/* via BFF; role: admin enforced server-side) ──────────
+  adminUsers: () => request<{ users: Array<{ id: number; email: string; role: string; active: boolean; created_at: string }> }>('/api/admin/users'),
+  adminUserReports: () => request<{ users: Array<{ id: string; email: string; role: string; active: boolean; requests: string; total_tokens: string; last_request_at: string | null }> }>('/api/admin/user-reports'),
+  adminPatchUser: (id: number, body: { active?: boolean; role?: string; password?: string }) =>
+    request<{ ok: boolean }>(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  adminDeleteUser: (id: number) => request<{ ok: boolean }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+  adminCreateUser: (body: { email: string; password: string; role: string }) =>
+    request<{ ok: boolean }>('/api/admin/users', { method: 'POST', body: JSON.stringify(body) }),
+  adminOverview: () => request<Record<string, unknown>>('/api/admin/overview'),
+  adminRefreshModels: () => request<{ ok: boolean }>('/api/admin/models/refresh', { method: 'POST' }),
   logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 };

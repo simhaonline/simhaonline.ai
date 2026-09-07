@@ -87,9 +87,8 @@ export default function DashboardOverviewPage() {
               {loading ? (
                 <p className="pt-16 text-center text-xs text-zinc-600">Loading chart…</p>
               ) : (
+                <ResponsiveContainer width="100%" height={230}>
                 <LineChart
-                  width={720}
-                  height={230}
                   data={data?.per_day || []}
                   margin={{ top: 8, right: 12, bottom: 0, left: -18 }}
                 >
@@ -103,6 +102,7 @@ export default function DashboardOverviewPage() {
                   />
                   <Line type="monotone" dataKey="requests" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 2.5, fill: '#8b5cf6' }} activeDot={{ r: 4 }} />
                 </LineChart>
+                </ResponsiveContainer>
               )}
             </CardContent>
           </Card>
@@ -112,7 +112,7 @@ export default function DashboardOverviewPage() {
             <CardHeader>
               <CardTitle>Plan &amp; usage</CardTitle>
               <CardDescription>
-                {loading ? '—' : `${data?.plan?.name ?? 'Free'} plan${data?.plan?.renews_at ? ` · renews ${data.plan.renews_at}` : ''}`}
+                {loading ? '—' : `${data?.plan?.name ?? 'Free'} plan${data?.plan?.renews_at ? ` · renews ${new Date(data.plan.renews_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}`}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
