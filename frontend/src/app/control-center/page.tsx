@@ -45,6 +45,15 @@ export default function DashboardPage() {
   const [view, setView] = useState<View>('overview'); const [ov, setOv] = useState<Overview>(blank); const [providerModels, setProviderModels] = useState<ProviderModel[]>([]); const [report, setReport] = useState<Report | null>(null); const [keys, setKeys] = useState<Key[]>([]); const [authError, setAuthError] = useState(false); const [loading, setLoading] = useState(true); const [search, setSearch] = useState(''); const [notice, setNotice] = useState(''); const [noticeTone, setNoticeTone] = useState<NoticeTone>('success');
   const [form, setForm] = useState({ name: '', base_url: '', api_key: '', provider: 'custom', protocol: 'openai', api_prefix: '/v1', auth_mode: 'api_key', oauth_token_file: '', wildcard: false, rpm: 100, rpd: 10000, rpw: 70000 }); const [newKey, setNewKey] = useState<{ id: number; value: string } | null>(null); const [dark, setDark] = useState(true);
   useEffect(() => { if (form.base_url) return; if (form.provider === 'huggingface') setForm((current) => ({ ...current, base_url: 'https://router.huggingface.co', api_prefix: '/v1', protocol: 'openai' })); if (form.provider === 'fal') setForm((current) => ({ ...current, base_url: 'https://fal.run', api_prefix: '', protocol: 'openai' })); }, [form.provider, form.base_url]);
+  // Deep-link support: /control-center#usage etc. opens that tab directly.
+  // The hash view ids match the sidebar OPS_LINKS anchors in DashboardNav.
+  useEffect(() => {
+    const fromHash = window.location.hash.replace('#', '') as View;
+    if (fromHash && nav.some((x) => x.id === fromHash)) { setView(fromHash); window.scrollTo({ top: 0 }); }
+    const onHash = () => { const v = window.location.hash.replace('#', '') as View; if (v && nav.some((x) => x.id === v)) { setView(v); window.scrollTo({ top: 0 }); } };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const [testing, setTesting] = useState<string | null>(null); const [testResults, setTestResults] = useState<Record<string, { ok: boolean; status: string; message: string; latency_ms?: number; model_count?: number }>>({});
   const [judgeSettings, setJudgeSettings] = useState<JudgeSettings | null>(null);
   const [judgeForm, setJudgeForm] = useState<JudgePolicy>({ mode: 'auto', primary: null, secondary: null, tie_breaker: null, fallback: null, consensus_judges: 1 });

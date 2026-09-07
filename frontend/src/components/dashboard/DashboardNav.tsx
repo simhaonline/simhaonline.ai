@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 
 const NAV = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/models', label: 'Models', icon: Boxes },
+  { href: '/dashboard/models', label: 'Providers & models', icon: Boxes },
   { href: '/dashboard/keys', label: 'API keys', icon: KeyRound },
   { href: '/dashboard/oauth', label: 'OAuth', icon: ShieldCheck },
   { href: '/dashboard/users', label: 'Users', icon: Users },
@@ -19,11 +19,11 @@ const NAV = [
 ];
 
 // Operational sections served by the legacy control-center page
-// (tabbed panels — real backend surfaces, no stubs).
+// (tabbed panels — real backend surfaces, no stubs). Hashes deep-link
+// into the tab (control-center reads location.hash).
 const OPS_LINKS = [
   { href: '/control-center#usage', label: 'Usage & reports', icon: BarChart3 },
   { href: '/control-center#observability', label: 'Observability', icon: Activity },
-  { href: '/control-center#routing', label: 'Routing & limits', icon: Compass },
   { href: '/control-center#judge', label: 'LLM Judge', icon: Gavel },
   { href: '/control-center#discovery', label: 'Discovery', icon: Compass },
   { href: '/control-center#scrapers', label: 'Scrapers', icon: Rss },

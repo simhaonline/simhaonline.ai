@@ -5,7 +5,7 @@
 // delete, create. Backed by admin.controller.ts (admin/api/users*).
 
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 
 interface UserRow {
   id: number;
@@ -50,7 +50,11 @@ export default function UsersAdminPage() {
       for (const row of (r.users || []) as UserReport[]) map[String(row.id)] = row;
       setReports(map);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load users');
+      if (e instanceof ApiError && (e.status === 403 || e.status === 401)) {
+        setError('Administrator access is required for user management.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Failed to load users');
+      }
     } finally {
       setLoading(false);
     }
