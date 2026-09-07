@@ -74,7 +74,7 @@ Engines (127.0.0.1 only): `GET /health/live|/health/ready|/metrics` on all six; 
 
 ## J. Known limitations
 
-- Judge currently runs the deterministic heuristic unless `JUDGE_BASE_URL`/`JUDGE_MODEL` are configured (documented; wire to any OpenAI-compatible endpoint).
+- ~~Judge currently runs the deterministic heuristic unless `JUDGE_BASE_URL`/`JUDGE_MODEL` are configured~~ — superseded by Judge Engine v2 (commit a053778): fully registry-integrated, DB-configured from Admin → Judge Settings, no `.env` requirement; heuristic remains only as the explicit fallback mode.
 - Discovery extractors cover GitHub lists, MCP registries (JSON + README), and generic heading indexes; HuggingFace/PyPI/npm adapters are next.
 - Arena blind battles UI (§20/58) not yet built; rank engine API supports the data side.
 - No OTLP exporter yet — `/metrics` is Prometheus-text only.
