@@ -26,6 +26,8 @@ export interface StreamOptions {
   aspectRatio?: string | null;
   /** video duration in seconds */
   durationSeconds?: number | null;
+  /** TTS voice id (premade or user-cloned) for audio generation */
+  voiceId?: string | null;
 }
 
 export async function streamChat(
@@ -52,6 +54,7 @@ export async function streamChat(
       ...(opts.taskMode ? { mode: opts.taskMode } : {}),
       ...(opts.aspectRatio ? { aspect_ratio: opts.aspectRatio } : {}),
       ...(opts.durationSeconds ? { duration_seconds: opts.durationSeconds } : {}),
+      ...(opts.voiceId ? { voice_id: opts.voiceId } : {}),
       ...(opts.body || {}),
     }),
   });

@@ -147,11 +147,11 @@ func openaiImagesGenerate(ctx context.Context, httpClient *http.Client, apiKey, 
 }
 
 // pickMediaAdapter decides which adapter serves this account+model and runs it.
-// Returns (url, kind, err).
-func pickMediaAdapter(ctx context.Context, st *store.Store, acc *store.Account, model, prompt, kind, aspect string, durationSec int) (string, string, error) {
+// Returns (url, kind, err). voiceID selects a TTS voice (premade or user-cloned).
+func pickMediaAdapter(ctx context.Context, st *store.Store, acc *store.Account, model, prompt, kind, aspect string, durationSec int, voiceID string) (string, string, error) {
 	switch {
 	case isFalAccount(acc.ProviderName(), acc.BaseURL):
-		return falGenerate(ctx, st.HTTPClient(), st.UpstreamAuthHeaders(ctx, acc), model, prompt, kind, aspect, durationSec)
+		return falGenerate(ctx, st.HTTPClient(), st.UpstreamAuthHeaders(ctx, acc), model, prompt, kind, aspect, durationSec, voiceID)
 	case qwenIs(acc.BaseURL):
 		url, err := dashscopeGenerate(ctx, st.HTTPClient(), st.UpstreamAPIKey(ctx, acc), model, prompt, kind)
 		return url, kind, err

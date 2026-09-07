@@ -7,7 +7,7 @@
 // DeepL-style translate handoff, voice, model picker, send/stop.
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Mic, Paperclip, Plus, Square } from 'lucide-react';
+import { ArrowUp, Loader2, Mic, Paperclip, Plus, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { wbApi } from '@/lib/wb-api';
 import { useChat } from '@/store/chat';
@@ -23,6 +23,8 @@ export interface SendPayload {
   aspectRatio?: string | null;
   /** video duration in seconds */
   durationSeconds?: number | null;
+  /** TTS voice id (premade or user-cloned) for audio generation */
+  voiceId?: string | null;
   /** work mode routed to the gateway task header */
   taskMode?: 'translate' | 'research' | 'code' | 'vision' | null;
   /** per-message tools (enabled skills/agents/plugins chosen in the menu) */
@@ -46,6 +48,8 @@ const IMAGE_RATIOS = ['1:1', '9:16', '3:4', '4:3', '16:9'] as const;
 const VIDEO_RATIOS = ['16:9', '9:16', '1:1'] as const;
 const VIDEO_DURATIONS = [5, 8, 10] as const;
 
+interface VoiceOption { voiceId: string; name: string; kind: 'premade' | 'cloned' }
+
 export function InputBar({
   onSend, onStop, streaming, disabled,
 }: {
@@ -65,6 +69,10 @@ export function InputBar({
   const [toolsOpen, setToolsOpen] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<string>('1:1');
   const [durationSeconds, setDurationSeconds] = useState<number>(5);
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [voiceId, setVoiceId] = useState<string>('');
+  const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
+  const [cloneOpen, setCloneOpen] = useState(false);
   const [activeTools, setActiveTools] = useState<string[]>([]);
   const [visionArmed, setVisionArmed] = useState(false);
   const [notice, setNotice] = useState('');
@@ -82,6 +90,20 @@ export function InputBar({
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, []);
 
+  // load voices when audio mode is armed
+  useEffect(() => {
+    if (mediaMode !== 'audio') return;
+    (async () => {
+      try {
+        const d = await wbApi.voices.list();
+        setVoices([
+          ...d.voices.map((v) => ({ voiceId: v.voice_id, name: `⭐ ${v.name}`, kind: 'cloned' as const })),
+          ...d.premade.map((p) => ({ voiceId: p.voice_id, name: p.name, kind: 'premade' as const })),
+        ]);
+      } catch { /* optional */ }
+    })();
+  }, [mediaMode]);
+
   function submit() {
     const text = draft.trim();
     if (!text || streaming || disabled) return;
@@ -94,6 +116,7 @@ export function InputBar({
       taskMode: hasImage && !taskMode ? 'vision' : taskMode,
       aspectRatio: mediaMode === 'image' || mediaMode === 'video' ? aspectRatio : null,
       durationSeconds: mediaMode === 'video' ? durationSeconds : null,
+      voiceId: mediaMode === 'audio' ? (voiceId || undefined) : null,
       tools: activeTools.length ? activeTools : undefined,
     });
     setDraft('');
@@ -356,6 +379,83 @@ export function InputBar({
                 </span>
               )}
 
+              {/* TTS voice picker (premade + cloned) for audio mode */}
+              {mediaMode === 'audio' && (
+                <span className="relative ml-1">
+                  <button
+                    onClick={() => setVoiceMenuOpen((v) => !v)}
+                    aria-expanded={voiceMenuOpen}
+                    aria-haspopup="listbox"
+                    title="Voice for text-to-speech"
+                    className={cn(
+                      'rounded-lg border px-2 py-1 text-[11px] cursor-pointer',
+                      voiceId ? 'border-violet-500 bg-violet-500/15 text-violet-300' : 'border-zinc-700 text-zinc-400 hover:text-zinc-100',
+                    )}
+                  >
+                    🎙 {voices.find((v) => v.voiceId === voiceId)?.name.split(' (')[0] || 'Default voice'} ▾
+                  </button>
+                  {voiceMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setVoiceMenuOpen(false)} />
+                      <div className="absolute bottom-full left-0 z-40 mb-2 max-h-72 w-64 overflow-auto rounded-xl border border-zinc-700 bg-zinc-900 p-1.5 shadow-2xl" role="listbox">
+                        <button
+                          onClick={() => { setVoiceId(''); setVoiceMenuOpen(false); }}
+                          role="option" aria-selected={!voiceId}
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] cursor-pointer',
+                            !voiceId ? 'bg-zinc-800 text-violet-300' : 'text-zinc-200 hover:bg-zinc-800',
+                          )}
+                        >
+                          🎙 Default voice {voiceId ? '' : '✓'}
+                        </button>
+                        <p className="px-2.5 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-zinc-600">My voices (cloned)</p>
+                        {voices.filter((v) => v.kind === 'cloned').map((v) => (
+                          <button
+                            key={v.voiceId}
+                            onClick={() => { setVoiceId(v.voiceId); setVoiceMenuOpen(false); }}
+                            role="option" aria-selected={voiceId === v.voiceId}
+                            className={cn(
+                              'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] cursor-pointer',
+                              voiceId === v.voiceId ? 'bg-zinc-800 text-violet-300' : 'text-zinc-200 hover:bg-zinc-800',
+                            )}
+                          >
+                            ⭐ {v.name.replace('⭐ ', '')}
+                          </button>
+                        ))}
+                        {!voices.some((v) => v.kind === 'cloned') && (
+                          <p className="px-2.5 py-1 text-[11px] text-zinc-600">
+                            No cloned voices yet —{' '}
+                            <button onClick={() => { setCloneOpen(true); setVoiceMenuOpen(false); }} className="text-violet-400 hover:text-violet-200 underline cursor-pointer">
+                              clone one
+                            </button>
+                          </p>
+                        )}
+                        <p className="px-2.5 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-zinc-600">Premade voices</p>
+                        {voices.filter((v) => v.kind === 'premade').map((v) => (
+                          <button
+                            key={v.voiceId}
+                            onClick={() => { setVoiceId(v.voiceId); setVoiceMenuOpen(false); }}
+                            role="option" aria-selected={voiceId === v.voiceId}
+                            className={cn(
+                              'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] cursor-pointer',
+                              voiceId === v.voiceId ? 'bg-zinc-800 text-violet-300' : 'text-zinc-300 hover:bg-zinc-800',
+                            )}
+                          >
+                            {v.name}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => { setCloneOpen(true); setVoiceMenuOpen(false); }}
+                          className="mt-1.5 flex w-full items-center gap-2 rounded-lg border border-dashed border-zinc-700 px-2.5 py-2 text-left text-[12px] text-zinc-400 hover:border-violet-500/50 hover:text-violet-300 cursor-pointer"
+                        >
+                          ＋ Clone a new voice…
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </span>
+              )}
+
               {activePersona && (
                 <span className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 py-1 pl-1.5 pr-2.5 text-[11px] text-violet-300">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: activePersona.color }} aria-hidden />
@@ -403,6 +503,12 @@ export function InputBar({
           <span>Simha can make mistakes. Verify important information.</span>
         </div>
         {notice && <p className="mt-1 px-1 text-[11px] text-amber-400" role="status">{notice}</p>}
+        {cloneOpen && (
+          <CloneVoiceDialog
+            onClose={() => setCloneOpen(false)}
+            onCloned={() => setNotice('Voice cloned — it is now in your voice picker.')}
+          />
+        )}
       </div>
     </div>
   );
@@ -511,6 +617,103 @@ interface SpeechRecognitionLike {
 interface SpeechEventLike {
   resultIndex: number;
   results: { length: number; [i: number]: { isFinal: boolean; [j: number]: { transcript: string } } };
+}
+
+/** Voice cloning dialog: sample upload + name + mandatory consent. */
+function CloneVoiceDialog({ onClose, onCloned }: {
+  onClose: () => void;
+  onCloned: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [name, setName] = useState('');
+  const [consented, setConsented] = useState(false);
+  const [consentText, setConsentText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+
+  useEffect(() => {
+    wbApi.voices.list().then((d) => setConsentText(d.consent_text)).catch(() => undefined);
+  }, []);
+
+  async function submit() {
+    if (!file || !name.trim() || !consented) return;
+    setBusy(true);
+    setError('');
+    try {
+      await wbApi.voices.clone(file, name.trim());
+      onCloned();
+      onClose();
+    } catch (e) {
+      setError((e as Error).message || 'Cloning failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Clone a voice">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[15px] font-semibold text-zinc-100">Clone a voice</h2>
+          <button onClick={onClose} aria-label="Close" className="text-zinc-500 hover:text-zinc-100 cursor-pointer">×</button>
+        </div>
+        <p className="mt-1 text-[12px] leading-5 text-zinc-400">
+          Upload a clear voice sample (10–120 seconds, wav/mp3/m4a). The cloned voice appears in your voice picker for audio generation.
+        </p>
+
+        <label
+          className={cn(
+            'mt-3 grid cursor-pointer place-items-center gap-1 rounded-xl border border-dashed px-4 py-6 text-center text-[12px] transition-colors',
+            dragOver ? 'border-violet-500 bg-violet-500/10 text-violet-300' : 'border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300',
+          )}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) setFile(f); }}
+        >
+          <input
+            hidden type="file" accept=".wav,.mp3,.m4a,.ogg,.webm,audio/*"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) setFile(f); e.target.value = ''; }}
+          />
+          {file ? <span className="text-violet-300">🎙 {file.name} ({Math.round(file.size / 1024)} KB)</span> : 'Drop a voice sample here or click to browse'}
+        </label>
+
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Voice name (e.g. “My narration voice”)"
+          aria-label="Voice name"
+          className="mt-3 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 focus:border-violet-500 focus:outline-none"
+        />
+
+        <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-lg border border-zinc-700 bg-zinc-950/50 p-3">
+          <input
+            type="checkbox"
+            checked={consented}
+            onChange={(e) => setConsented(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-violet-500 cursor-pointer"
+          />
+          <span className="text-[11.5px] leading-5 text-zinc-400">
+            {consentText || 'I confirm I own this voice or have explicit permission…'}
+          </span>
+        </label>
+
+        {error && <p className="mt-2 text-[12px] text-red-400" role="alert">{error}</p>}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg px-3.5 py-2 text-[12.5px] text-zinc-400 hover:text-zinc-100 cursor-pointer">Cancel</button>
+          <button
+            onClick={() => void submit()}
+            disabled={!file || !name.trim() || !consented || busy}
+            className="flex items-center gap-1.5 rounded-lg bg-violet-500 px-4 py-2 text-[12.5px] font-medium text-white hover:bg-violet-400 cursor-pointer disabled:opacity-40"
+          >
+            {busy && <Loader2 size={13} className="animate-spin" />}
+            {busy ? 'Cloning…' : 'Clone voice'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default InputBar;

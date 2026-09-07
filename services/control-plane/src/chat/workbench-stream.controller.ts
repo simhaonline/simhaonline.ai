@@ -47,6 +47,7 @@ export class WorkbenchStreamController {
    mode?: string;
    aspect_ratio?: string;
    duration_seconds?: number;
+   voice_id?: string;
  },
   ) {
     const cookie = req.headers.cookie || '';
@@ -120,6 +121,7 @@ export class WorkbenchStreamController {
         ...(isMedia ? { output_modality: effectiveMode } : {}),
         ...(body.aspect_ratio ? { aspect_ratio: body.aspect_ratio } : {}),
         ...(body.duration_seconds ? { duration_seconds: body.duration_seconds } : {}),
+        ...(body.voice_id ? { voice_id: body.voice_id } : {}),
       }),
     });
     if (!upstream.ok || !upstream.body) {

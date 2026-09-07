@@ -152,6 +152,27 @@ export const wbApi = {
       return body;
     },
   },
+  voices: {
+    /** List user-cloned voices + curated premade voices + consent text. */
+    list: () => request<{
+      voices: Array<{ id: number; name: string; kind: string; voice_id: string; created_at: string }>;
+      premade: Array<{ name: string; voice_id: string }>;
+      consent_text: string;
+    }>('/chat/api/v1/voices'),
+    /** Clone a voice from an uploaded sample (requires consent_confirmed). */
+    clone: async (file: File, name: string): Promise<{ voice: { id: number; name: string; voice_id: string } }> => {
+      const data = new FormData();
+      data.append('sample', file);
+      data.append('name', name);
+      data.append('consent_confirmed', 'true');
+      const res = await fetch('/api/chat/api/v1/voices/clone', { method: 'POST', body: data, credentials: 'include' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Cloning failed (${res.status})`);
+      return body;
+    },
+    remove: (id: number) =>
+      request<{ ok: boolean }>(`/chat/api/v1/voices/${id}`, { method: 'DELETE' }),
+  },
   feedback: {
     send: (rating: string, comment?: string) =>
       request<{ id: number }>('/chat/api/v1/feedback', { method: 'POST', body: JSON.stringify({ rating, comment }) }),

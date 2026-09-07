@@ -66,7 +66,7 @@ export default function ConversationPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages[conversationId]?.length, messages[conversationId]?.[messages[conversationId]?.length - 1]?.content]);
 
-  const runStream = useCallback(async (history: ChatMessage[], mediaMode?: 'image' | 'video' | 'audio' | null, taskMode?: 'translate' | 'research' | 'code' | 'vision' | null, suffix?: string, aspectRatio?: string | null, durationSeconds?: number | null) => {
+  const runStream = useCallback(async (history: ChatMessage[], mediaMode?: 'image' | 'video' | 'audio' | null, taskMode?: 'translate' | 'research' | 'code' | 'vision' | null, suffix?: string, aspectRatio?: string | null, durationSeconds?: number | null, voiceId?: string | null) => {
     const controller = new AbortController();
     abortRef.current = controller;
     setStreamError('');
@@ -86,6 +86,7 @@ export default function ConversationPage() {
           taskMode: taskMode || null,
           aspectRatio: aspectRatio || null,
           durationSeconds: durationSeconds || null,
+          voiceId: voiceId || null,
           onChunk: (chunk) => { content += chunk; updateStreamingMessage(conversationId, suffix ? content + suffix : content); },
           onDone: async (usage) => {
             const latency = Date.now() - started;
@@ -111,7 +112,7 @@ export default function ConversationPage() {
     }
   }, [conversationId, selectedModel, enabledPlugins, updateStreamingMessage, finalizeStreamingMessage]);
 
-  async function send({ text, fileIds, mediaMode, taskMode, aspectRatio, durationSeconds, tools }: { text: string; fileIds: string[]; mediaMode?: 'image' | 'video' | 'audio' | null; taskMode?: 'translate' | 'research' | 'code' | 'vision' | null; aspectRatio?: string | null; durationSeconds?: number | null; tools?: string[] }) {
+  async function send({ text, fileIds, mediaMode, taskMode, aspectRatio, durationSeconds, voiceId, tools }: { text: string; fileIds: string[]; mediaMode?: 'image' | 'video' | 'audio' | null; taskMode?: 'translate' | 'research' | 'code' | 'vision' | null; aspectRatio?: string | null; durationSeconds?: number | null; voiceId?: string | null; tools?: string[] }) {
     void fileIds; void tools;
     // optimistic user message (annotated with the active mode)
     const badge = mediaMode ? ` [${mediaMode}${aspectRatio ? ' ' + aspectRatio : ''}${mediaMode === 'video' && durationSeconds ? ' ' + durationSeconds + 's' : ''}]` : taskMode ? ` [${taskMode}]` : '';
@@ -143,7 +144,7 @@ export default function ConversationPage() {
       }
       await new Promise((r) => setTimeout(r, 900));
     }
-    await runStream(history, mediaMode, taskMode, undefined, aspectRatio, durationSeconds);
+    await runStream(history, mediaMode, taskMode, undefined, aspectRatio, durationSeconds, voiceId);
   }
 
   async function regenerate(message: BubbleMessage) {

@@ -98,14 +98,26 @@ func guessFalKind(model string) string {
 
 // falGenerate performs the synchronous fal.run call and returns (url, mediaKind, err).
 // aspect: "1:1"|"9:16"|"3:4"|"4:3"|"16:9"; durationSec applies to video models.
-func falGenerate(ctx context.Context, httpClient *http.Client, authHeaders map[string]string, model, prompt string, kind string, aspect string, durationSec int) (string, string, error) {
+// voiceID applies to TTS models (ElevenLabs premade or user-cloned voices).
+func falGenerate(ctx context.Context, httpClient *http.Client, authHeaders map[string]string, model, prompt string, kind string, aspect string, durationSec int, voiceID string) (string, string, error) {
 	if kind == "" {
 		kind = guessFalKind(model)
 	}
 	payload := map[string]any{"prompt": prompt}
 	// fal parameter conventions: flux uses image_size ("square_hd",
 	// "portrait_16_9", "landscape_16_9", …); video models use aspect_ratio
-	// ("16:9"/"9:16"/"1:1") + duration ("5"/"10" or seconds int).
+	// ("16:9"/"9:16"/"1:1") + duration ("5"/"10" or seconds int); ElevenLabs
+	// TTS uses text + voice_id.
+	switch kind {
+	case "audio":
+		if strings.Contains(strings.ToLower(model), "elevenlabs") || strings.Contains(strings.ToLower(model), "tts") {
+			delete(payload, "prompt")
+			payload["text"] = prompt
+			if voiceID != "" {
+				payload["voice_id"] = voiceID
+			}
+		}
+	}
 	if aspect != "" {
 		switch kind {
 		case "image":

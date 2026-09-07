@@ -593,7 +593,8 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, ctx context.Con
 						if d, ok := falData["duration_seconds"].(float64); ok {
 							duration = int(d)
 						}
-						url, usedKind, err := pickMediaAdapter(ctx, s.st, acc, model, prompt, kind, aspect, duration)
+						voiceID, _ := falData["voice_id"].(string)
+						url, usedKind, err := pickMediaAdapter(ctx, s.st, acc, model, prompt, kind, aspect, duration, voiceID)
 						if err != nil {
 							if err == errNoMediaAdapter {
 								// fall through to plain chat proxy (native-multimodal
