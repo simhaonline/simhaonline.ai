@@ -87,6 +87,11 @@ export class WorkbenchV1Controller {
     const { rowCount } = await this.pool.query(
       `DELETE FROM chat_history WHERE id = $1 AND user_id = $2`, [Number(id), user.id]);
     if (!rowCount) throw new HttpException({ error: 'Conversation not found' }, HttpStatus.NOT_FOUND);
+    // audit every conversation deletion (cross-check finding: deletes were
+    // previously silent, making data loss undiagnosable)
+    await this.pool.query(
+      `INSERT INTO audit_log(actor, action, target, detail_json) VALUES ($1,'chat.conversation_deleted',$2,$3)`,
+      [String(user.id), id, JSON.stringify({ via: 'workbench' })]);
     return res.json({ ok: true });
   }
 
