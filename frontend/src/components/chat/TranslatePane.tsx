@@ -1,14 +1,15 @@
 'use client';
 
 // components/chat/TranslatePane.tsx — DeepL-style dual-side translator:
-// source pane (language selector + textarea + clear/swap) | target pane
-// (language selector + translated output + copy). Uses the chat pipeline
-// with a strict translation instruction.
+// source pane (language selector + textarea + upload/swap) | target pane
+// (language selector + translated output + copy). Supports document upload
+// (txt/md/pdf/docx/xlsx/pptx/code) with chunked translation for long docs.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeftRight, Check, Copy, Volume2, X } from 'lucide-react';
+import { ArrowLeftRight, Check, Copy, FileText, Loader2, Upload, Volume2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { streamChat } from '@/lib/streaming';
+import { wbApi } from '@/lib/wb-api';
 import { useChat } from '@/store/chat';
 
 const LANGUAGES = [
@@ -41,8 +42,13 @@ export function TranslatePane({
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [detected, setDetected] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [docName, setDocName] = useState<string | null>(null);
+  const [docProgress, setDocProgress] = useState<{ done: number; total: number } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const setDraft = useChat((s) => s.setDraft);
 
   const translate = useCallback(async (text: string, fromLang: Lang, toLang: Lang) => {
@@ -75,6 +81,79 @@ export function TranslatePane({
       }
     }
   }, []);
+
+  // chunked translation for uploaded documents (long docs exceed one
+  // request's practical budget — translate ~3500-char segments in order)
+  const translateDocument = useCallback(async (text: string, fromLang: Lang, toLang: Lang) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setBusy(true);
+    setTarget('');
+    const CHUNK = 3500;
+    const segments: string[] = [];
+    let rest = text;
+    while (rest.length > 0) {
+      // split on paragraph boundary when possible to avoid mid-sentence cuts
+      let cut = Math.min(CHUNK, rest.length);
+      if (rest.length > CHUNK) {
+        const para = rest.lastIndexOf('\n\n', CHUNK);
+        const line = rest.lastIndexOf('\n', CHUNK);
+        const boundary = para > CHUNK * 0.5 ? para : line > CHUNK * 0.5 ? line : CHUNK;
+        cut = boundary;
+      }
+      segments.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    let full = '';
+    try {
+      for (let i = 0; i < segments.length; i++) {
+        setDocProgress({ done: i, total: segments.length });
+        let part = '';
+        await streamChat(
+          0,
+          [{
+            role: 'user',
+            content: `Translate the following text from ${fromLang} to ${toLang}. Reply with ONLY the translation — no quotes, no explanations, no romanization. This is part ${i + 1} of ${segments.length} of a document; translate it in context but output only this part's translation.\n\n${segments[i]}`,
+          }],
+          'auto',
+          [],
+          [],
+          {
+            signal: controller.signal,
+            onChunk: (chunk) => { part += chunk; setTarget(full + part); },
+            onDone: () => { /* next chunk */ },
+          },
+        );
+        full += part + (i < segments.length - 1 ? '\n\n' : '');
+        setTarget(full);
+      }
+      setDocProgress({ done: segments.length, total: segments.length });
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
+        setTarget(full + `\n\n⚠ Translation interrupted: ${(e as Error).message}`);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    setDocName(null);
+    setDocProgress(null);
+    try {
+      const d = await wbApi.translate.extract(file);
+      setSource(d.text);
+      setDocName(`${file.name} · ${d.characters.toLocaleString()} chars · extracted via ${d.parser}`);
+      // documents: chunked translation, not the typing debounce path
+      void translateDocument(d.text, from, to);
+    } catch (e) {
+      setTarget(`⚠ ${(e as Error).message}`);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   // auto-translate on typing (debounced 700ms — DeepL behavior)
   useEffect(() => {
@@ -146,12 +225,31 @@ export function TranslatePane({
           {/* dual panes */}
           <div className="grid grid-cols-1 divide-zinc-800 md:grid-cols-2 md:divide-x">
             {/* source */}
-            <div className="p-3.5">
+            <div
+              className="p-3.5"
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) void handleFile(f);
+              }}
+            >
+              <input
+                ref={fileRef}
+                hidden
+                type="file"
+                accept=".txt,.md,.csv,.json,.yaml,.yml,.html,.xml,.pdf,.docx,.xlsx,.xls,.pptx,.ppt,.py,.js,.ts,.go,.java,.sql,.sh,.css"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); e.target.value = ''; }}
+              />
               <textarea
                 autoFocus
                 value={source}
                 onChange={(e) => {
                   setSource(e.target.value);
+                  setDocName(null);
+                  setDocProgress(null);
                   // naive script detection for the detected badge
                   if (/[\u0600-\u06FF]/.test(e.target.value)) setDetected('Arabic');
                   else if (/[\u4e00-\u9fff]/.test(e.target.value)) setDetected('Chinese (Simplified)');
@@ -162,16 +260,41 @@ export function TranslatePane({
                 }}
                 placeholder="Type or paste text to translate…"
                 aria-label="Source text"
-                className="min-h-[104px] w-full resize-none bg-transparent text-[15px] leading-6 text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                className={cn(
+                  'min-h-[104px] w-full resize-none bg-transparent text-[15px] leading-6 text-zinc-100 placeholder:text-zinc-600 focus:outline-none',
+                  dragOver && 'rounded-lg ring-2 ring-violet-500/50',
+                )}
               />
-              <div className="mt-1 flex items-center justify-between">
-                <small className="text-[10px] text-zinc-600">{source.length} chars</small>
+              {/* document chip / upload controls */}
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading}
+                    aria-label="Upload document to translate"
+                    title="Upload a document (PDF, DOCX, XLSX, PPTX, TXT, code) — max 25 MB"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer disabled:opacity-50"
+                  >
+                    {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                    {uploading ? 'Extracting…' : 'Upload file'}
+                  </button>
+                  {docName && (
+                    <span className="inline-flex min-w-0 items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300">
+                      <FileText size={10} className="shrink-0" />
+                      <span className="truncate">{docName}</span>
+                      <button onClick={() => { setDocName(null); setDocProgress(null); }} aria-label="Clear document marker" className="ml-0.5 shrink-0 text-violet-400/70 hover:text-violet-200 cursor-pointer">×</button>
+                    </span>
+                  )}
+                </div>
                 {source && (
-                  <button onClick={() => { setSource(''); setTarget(''); }} className="text-[11px] text-zinc-500 hover:text-zinc-200 cursor-pointer">
+                  <button onClick={() => { setSource(''); setTarget(''); setDocName(null); setDocProgress(null); }} className="shrink-0 text-[11px] text-zinc-500 hover:text-zinc-200 cursor-pointer">
                     Clear
                   </button>
                 )}
               </div>
+              <small className={cn('mt-0.5 block text-[10px]', source.length ? 'text-zinc-600' : 'text-zinc-700')}>
+                {source.length ? `${source.length.toLocaleString()} chars` : 'or drop a file here to translate it'}
+              </small>
             </div>
 
             {/* target */}
@@ -179,6 +302,11 @@ export function TranslatePane({
               {busy ? (
                 <div className="flex min-h-[104px] items-start gap-2 text-[13px] text-zinc-500">
                   <span className="streaming-cursor" aria-hidden /> translating…
+                  {docProgress && (
+                    <span className="ml-auto shrink-0 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300">
+                      part {Math.min(docProgress.done + 1, docProgress.total)}/{docProgress.total}
+                    </span>
+                  )}
                 </div>
               ) : target ? (
                 <p className="min-h-[104px] whitespace-pre-wrap text-[15px] leading-6 text-zinc-100">{target}</p>

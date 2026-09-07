@@ -141,6 +141,17 @@ export const wbApi = {
       request<{ query: string; sources: Array<{ title: string; url: string; snippet: string }>; errors?: string[]; note?: string }>(
         '/chat/api/v1/research', { method: 'POST', body: JSON.stringify({ query, depth }) }),
   },
+  translate: {
+    /** Upload a document and get its plain text back for the translator. */
+    extract: async (file: File): Promise<{ text: string; parser: string; characters: number; name: string }> => {
+      const data = new FormData();
+      data.append('file', file);
+      const res = await fetch('/api/chat/api/v1/translate/extract', { method: 'POST', body: data, credentials: 'include' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Extraction failed (${res.status})`);
+      return body;
+    },
+  },
   feedback: {
     send: (rating: string, comment?: string) =>
       request<{ id: number }>('/chat/api/v1/feedback', { method: 'POST', body: JSON.stringify({ rating, comment }) }),

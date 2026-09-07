@@ -16,7 +16,8 @@ import psycopg
 from psycopg_pool import AsyncConnectionPool
 import redis.asyncio as aioredis
 import boto3
-from fastapi import FastAPI
+import tempfile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 
 LOG = logging.getLogger("simha.worker")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -300,6 +301,17 @@ def _extract_file(file_path: str, mime_type: str, original_name: str) -> tuple[s
             return "\n".join(text)[:8 * 1024 * 1024], "slides"
         except Exception as exc:  # noqa: BLE001
             return "", f"slides-unavailable:{type(exc).__name__}"
+    if suffix == ".docx":
+        try:
+            import docx  # python-docx
+            document = docx.Document(file_path)
+            parts = [p.text for p in document.paragraphs if p.text.strip()]
+            for table in document.tables:
+                for row in table.rows:
+                    parts.append("\t".join(cell.text.strip() for cell in row.cells))
+            return "\n".join(parts)[:8 * 1024 * 1024], "docx"
+        except Exception as exc:  # noqa: BLE001
+            return "", f"docx-unavailable:{type(exc).__name__}"
     return "", "binary-passthrough"
 
 
@@ -505,6 +517,43 @@ app = FastAPI(title="Simha Worker", lifespan=lifespan)
 @app.get("/healthz")
 async def health():
     return {"status": "ok", "service": "simha-worker", "time": int(time.time())}
+
+
+# ── Synchronous file-text extraction (Workbench translator) ─────────────────
+# The ingestion pipeline chunks for RAG asynchronously; translation needs the
+# full text immediately, so this endpoint runs the same parsers synchronously.
+_TRANSLATION_SUFFIXES = {
+    ".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".html", ".htm", ".xml",
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".c", ".cpp",
+    ".h", ".hpp", ".sh", ".sql", ".css",
+    ".pdf", ".xlsx", ".xls", ".pptx", ".ppt", ".docx",
+}
+
+
+@app.post("/extract")
+async def extract_for_translation(file: UploadFile = File(...)):
+    """Return the plain text of an uploaded file for the translator."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="filename required")
+    suffix = os.path.splitext(file.filename)[1].lower()
+    if suffix not in _TRANSLATION_SUFFIXES:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type for translation: {suffix or 'unknown'}")
+    blob = await file.read()
+    if len(blob) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large for translation (25 MB max)")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp.write(blob)
+        tmp.close()
+        text, parser = await asyncio.to_thread(_extract_file, tmp.name, file.content_type or "", file.filename)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+    if not text.strip():
+        raise HTTPException(status_code=422, detail=f"No extractable text found ({parser}) — scanned PDFs need OCR, which is not enabled yet.")
+    return {"text": text, "parser": parser, "characters": len(text), "name": file.filename}
 
 
 @app.get("/status/recent")
