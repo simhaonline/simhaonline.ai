@@ -97,6 +97,6 @@ Engines (127.0.0.1 only): `GET /health/live|/health/ready|/metrics` on all six; 
 
 1. ~~Phase 3 completion: feed `discovered_models` + `request_history` into router-opt `/optimize` from the worker~~ DONE (worker `router_opt_loop`, every 10 min).
 2. ~~Wire rank+judge into a `/arena` page (blind battles, §58)~~ DONE (public `/arena` + ArenaController; judge integration for answer-quality screening is a future refinement).
-3. Agent runtime + teams (Phase 5) as a new isolated engine consuming the same contract.
+3. ~~Agent runtime (Phase 5, §26-31)~~ **DONE (2026-09-07)**: `modules/agents` engine (:8117) — §30 core loop (plan → tool select → execute → observe → final), 5-tool registry with §31 permission allow-list + approval gates (`memory_save` gated), Postgres-persisted runs (`database/11_agents.sql`: agent_runs/agent_steps/agent_approvals), session-auth CP API (`/chat/api/v1/agents/*`), Studio tab AgentRunner UI with live trace. Verified live: run #6 completed end-to-end; approval flow (deny→fail, approve→resume) verified on run #5. Remaining Phase 5 refinement: multi-agent teams/DAG (§26/§28) on top of the single-runtime foundation.
 4. Migration runner for core Postgres (audit gap #1).
-5. Prometheus scrape of `:8111-8116/metrics` + alert rules (OTLP push now also available via `OTLP_EXPORT_URL`).
+5. Prometheus scrape of `:8111-8117/metrics` + alert rules (OTLP push now also available via `OTLP_EXPORT_URL`).

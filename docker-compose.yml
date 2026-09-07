@@ -317,14 +317,30 @@ services:
     build: ./modules/judge
     image: simhaonline-judge:latest
     container_name: simha-judge
-    restart: unless-stopped
     profiles: ["engines"]
+    restart: unless-stopped
     environment:
       JUDGE_DATABASE_URL: postgres://${POSTGRES_USER:-simha}:${POSTGRES_PASSWORD:-simha_dev_password}@postgres:5432/${POSTGRES_DB:-simhaonline}
     depends_on:
       - postgres
     ports:
       - "127.0.0.1:8116:8116"
+
+  agents:
+    build: ./modules/agents
+    image: simhaonline-agents:latest
+    container_name: simha-agents
+    profiles: ["engines"]
+    restart: unless-stopped
+    environment:
+      AGENTS_DATABASE_URL: postgres://${POSTGRES_USER:-simha}:${POSTGRES_PASSWORD:-simha_dev_password}@postgres:5432/${POSTGRES_DB:-simhaonline}
+      GATEWAY_URL: http://gateway:8080
+      SCRAPER_URL: http://scraper:8111
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8117:8117"
 
 volumes:
   pgdata:

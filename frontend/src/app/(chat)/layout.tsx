@@ -563,6 +563,7 @@ function Badge({ children }: { children: React.ReactNode }) {
 // ── Studio tab ───────────────────────────────────────────────────────────────
 
 import { V1Persona } from '@/lib/wb-api';
+import AgentRunner from '@/components/chat/AgentRunner';
 function StudioTab() {
   const [personas, setPersonas] = useState<V1Persona[]>([]);
   const [caps, setCaps] = useState<{
@@ -645,6 +646,8 @@ function StudioTab() {
         ))}
         {!caps.agents.length && <p className="px-1 py-2 text-center text-[11px] text-zinc-600">No agents registered.</p>}
       </div>
+
+      <AgentRunner />
 
       <PersonaSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSaved={async () => { setSheetOpen(false); await load(); }} />
     </div>
