@@ -192,6 +192,20 @@ func (s *Store) RefreshModels(ctx context.Context) {
 					 confidence_score=EXCLUDED.confidence_score, last_verified_at=now(), updated_at=now()`, a.Name, m, cap)
 			}
 		}
+		// Re-apply deprecation policies: discovery re-inserts everything with
+		// enabled=true, so policy-matched models (legacy generations, :batch/
+		// :free tiers, dated snapshots) are disabled again here. This keeps
+		// the routable catalog to current-generation models per policy.
+		tag, err := s.Pool.Exec(ctx, `
+			UPDATE discovered_models dm SET enabled = false
+			FROM model_deprecations dp
+			WHERE dm.account_name = $1 AND dp.enabled = true AND dm.model ILIKE dp.pattern`,
+			a.Name)
+		if err != nil {
+			log.Printf("[discovery] %s: deprecation filter failed: %v", a.Name, err)
+		} else if tag.RowsAffected() > 0 {
+			log.Printf("[discovery] %s: %d deprecated models disabled by policy", a.Name, tag.RowsAffected())
+		}
 	}
 	// Rebuild the shared routing catalog from the persisted enabled flags.
 	rows, err := s.Pool.Query(ctx, `SELECT model, account_name FROM discovered_models WHERE enabled = true`)
