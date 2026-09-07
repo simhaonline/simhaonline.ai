@@ -134,6 +134,116 @@ nav.topbar .links {
 .menu-toggle { display: none; }
 .marketing-page .menu-toggle { display: block; }
 
+/* ── Light / dark theme toggle ─────────────────────────────────────────────
+   The app is dark-first. Every color in the legacy sections reads from the
+   --bg/--panel/--panel-2/--line/--text/--muted/--accent variables, so light
+   mode is a single :root override (html:not(.dark)). Tailwind surfaces
+   (workbench, dashboard) additionally remap the zinc palette classes via
+   the light-theme block below. */
+html:not(.dark) {
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --panel-2: #f0f2f5;
+  --line: #d9dee6;
+  --text: #1a2230;
+  --muted: #5c6779;
+  --accent: #7c3aed;
+  --accent-dim: #6d28d9;
+  --ok: #15803d;
+  --warn: #b45309;
+  --err: #dc2626;
+}
+/* Tailwind zinc surfaces in light mode */
+html:not(.dark) .bg-zinc-950 { background-color: #f7f8fa !important; }
+html:not(.dark) .bg-zinc-900 { background-color: #ffffff !important; }
+html:not(.dark) .bg-zinc-900\/70,
+html:not(.dark) .bg-zinc-900\/60 { background-color: #f2f4f7 !important; }
+html:not(.dark) .bg-zinc-800 { background-color: #e9ecf1 !important; }
+html:not(.dark) .bg-zinc-800\/80,
+html:not(.dark) .bg-zinc-800\/70,
+html:not(.dark) .bg-zinc-800\/60 { background-color: #eef0f4 !important; }
+html:not(.dark) .bg-zinc-800\/50 { background-color: #f0f2f5 !important; }
+html:not(.dark) .text-zinc-50,
+html:not(.dark) .text-zinc-100 { color: #161d29 !important; }
+html:not(.dark) .text-zinc-200,
+html:not(.dark) .text-zinc-300 { color: #33405a !important; }
+html:not(.dark) .text-zinc-400,
+html:not(.dark) .text-zinc-500 { color: #5c6779 !important; }
+html:not(.dark) .text-zinc-600 { color: #6c7789 !important; }
+html:not(.dark) .border-zinc-800,
+html:not(.dark) .border-zinc-700 { border-color: #d9dee6 !important; }
+html:not(.dark) .bg-gradient-to-t.from-zinc-950 { --tw-gradient-from: #f7f8fa; }
+html:not(.dark) .bg-gradient-to-t.from-zinc-950.via-zinc-950 { --tw-gradient-stops: var(--tw-gradient-from), #f7f8fa var(--tw-gradient-via-position, 50%), #f7f8fa; }
+html:not(.dark) .border-zinc-800\/70,
+html:not(.dark) .border-zinc-700\/70 { border-color: #e3e7ee !important; }
+html:not(.dark) .hover\:bg-zinc-800:hover { background-color: #e6e9ef !important; }
+html:not(.dark) .hover\:border-zinc-600:hover,
+html:not(.dark) .hover\:border-zinc-500:hover { border-color: #b9c2cf !important; }
+html:not(.dark) .hover\:text-zinc-100:hover,
+html:not(.dark) .hover\:text-zinc-200:hover { color: #161d29 !important; }
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.theme-toggle:hover { color: var(--text); border-color: var(--accent); }
+.wb-root .theme-toggle { border-color: #3f4650; color: #a2a8b2; }
+.wb-root .theme-toggle:hover { color: #f4f1eb; border-color: #6b7280; }
+html:not(.dark) .wb-root .theme-toggle { border-color: #d9dee6; color: #5c6779; }
+
+/* Legacy hardcoded-dark sections (Control Center, benchmarks shell) get a
+   light inversion in light mode: swap the dark backgrounds/text. */
+html:not(.dark) .dash-shell,
+html:not(.dark) .dash-top,
+html:not(.dark) .dash-card,
+html:not(.dark) .dash-metric,
+html:not(.dark) .benchmark-shell,
+html:not(.dark) .benchmark-card,
+html:not(.dark) .marketing-page .topbar .links,
+html:not(.dark) .marketing-footer { background-color: #ffffff; }
+html:not(.dark) .dash-shell,
+html:not(.dark) .dash-top,
+html:not(.dark) .benchmark-shell { color: #1a2230; }
+html:not(.dark) .dash-side { background-color: #f0f2f5; border-right-color: #d9dee6; }
+html:not(.dark) .dash-brand,
+html:not(.dark) .dash-card-head b,
+html:not(.dark) .dash-metric strong,
+html:not(.dark) .dash-top b { color: #161d29; }
+html:not(.dark) .dash-card,
+html:not(.dark) .dash-metric,
+html:not(.dark) .dash-top,
+html:not(.dark) .benchmark-card { border-color: #d9dee6; box-shadow: 0 12px 32px rgba(16,24,40,.06); }
+html:not(.dark) .dash-table th,
+html:not(.dark) .dash-table td { border-bottom-color: #e3e7ee; }
+html:not(.dark) .dash-table td,
+html:not(.dark) .dash-form label,
+html:not(.dark) .dash-legend { color: #33405a; }
+html:not(.dark) .dash-table input,
+html:not(.dark) .dash-top-actions input,
+html:not(.dark) .dash-form input,
+html:not(.dark) .dash-form select { background: #ffffff; color: #1a2230; border-color: #d9dee6; }
+html:not(.dark) .dash-workspace,
+html:not(.dark) .dash-code,
+html:not(.dark) .benchmark-toolbar>input { background: #ffffff; border-color: #d9dee6; }
+html:not(.dark) .dash-table th { color: #6c7789; }
+html:not(.dark) .marketing-hero,
+html:not(.dark) .marketing-cta,
+html:not(.dark) .trust { background: #ffffff; }
+html:not(.dark) .console-body,
+html:not(.dark) .console-log,
+html:not(.dark) .hero-code-window pre,
+html:not(.dark) .hero-console { background: #10141b; color: #e6edf3; } /* hero console stays dark intentionally */
+html:not(.dark) .dash-switch { background: #c3ccd8; }
+
 .hero {
   padding: 72px 0 56px;
 }

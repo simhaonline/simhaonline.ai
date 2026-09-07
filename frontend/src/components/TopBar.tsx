@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 // Audit (UX): inside an app surface the top bar carries only brand + account;
 // marketing links (Home/Pricing/Status/Docs/Benchmarks) live on the website,
@@ -52,6 +53,7 @@ export default function TopBar() {
           ))}
           {authenticated === true && <div className="account-menu"><button className="nav-account" aria-expanded={accountOpen} onClick={() => setAccountOpen((value) => !value)}>Account ▾</button>{accountOpen && <div className="account-popover" role="menu"><Link href="https://platform.simhaonline.ai/" onClick={() => { setOpen(false); setAccountOpen(false); }}>Dashboard</Link><Link href="https://chat.simhaonline.ai/chat" onClick={() => { setOpen(false); setAccountOpen(false); }}>Workbench</Link><Link href="https://platform.simhaonline.ai/settings" onClick={() => { setOpen(false); setAccountOpen(false); }}>Settings</Link><Link href="https://simhaonline.ai/pricing" onClick={() => { setOpen(false); setAccountOpen(false); }}>Billing</Link><Link href="https://docs.simhaonline.ai/" onClick={() => { setOpen(false); setAccountOpen(false); }}>Docs</Link><button onClick={() => { setOpen(false); setAccountOpen(false); void logout(); }}>Sign out</button></div>}</div>}
           {authenticated === false && <Link href="https://platform.simhaonline.ai/login" onClick={() => setOpen(false)}>Sign in</Link>}
+          <ThemeToggle />
         </div>
       </div>
     </nav>

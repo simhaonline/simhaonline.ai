@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { ArrowLeft, Check, ChevronDown, Copy, Download, MoreVertical, Pencil, Pin, Plus, Search, Share2, Trash2 } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { cn } from '@/lib/utils';
 import { wbApi, ApiError } from '@/lib/wb-api';
 import { useChat } from '@/store/chat';
@@ -99,6 +100,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
             <span className="grid h-5 w-5 place-items-center rounded-md bg-violet-500 text-black">⌁</span>
             Simha Workbench
           </Link>
+          <ThemeToggle />
         </div>
 
         {/* new conversation */}
