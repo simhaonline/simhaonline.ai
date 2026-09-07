@@ -75,9 +75,10 @@ Engines (127.0.0.1 only): `GET /health/live|/health/ready|/metrics` on all six; 
 ## J. Known limitations
 
 - ~~Judge currently runs the deterministic heuristic unless `JUDGE_BASE_URL`/`JUDGE_MODEL` are configured~~ — superseded by Judge Engine v2 (commit a053778): fully registry-integrated, DB-configured from Admin → Judge Settings, no `.env` requirement; heuristic remains only as the explicit fallback mode.
-- Discovery extractors cover GitHub lists, MCP registries (JSON + README), and generic heading indexes; HuggingFace/PyPI/npm adapters are next.
-- Arena blind battles UI (§20/58) not yet built; rank engine API supports the data side.
-- No OTLP exporter yet — `/metrics` is Prometheus-text only.
+- ~~Discovery extractors cover GitHub lists, MCP registries (JSON + README), and generic heading indexes; HuggingFace/PyPI/npm adapters are next~~ — HuggingFace models API, npm registry search, and PyPI simple-index extractors are now implemented (Phase 3 completion).
+- ~~Arena blind battles UI (§20/58) not yet built; rank engine API supports the data side~~ — built: public `/arena` page (blind A/B battles, vote-to-reveal, live Elo table) on the new `ArenaController` (CP `/arena/api/*`), rate-limited, votes recorded in the rank engine.
+- ~~No OTLP exporter yet — `/metrics` is Prometheus-text only~~ — engines now optionally push JSON metric batches (OTLP/HTTP-style) when `OTLP_EXPORT_URL` is set; Prometheus text remains the default.
+- Phase 3 router-opt feed: DONE — the worker pushes accounts × enabled models (with 24h success/latency stats) into `router-opt /optimize` every 10 minutes; report remains advisory-only.
 
 ## K. Deployment instructions
 
@@ -94,8 +95,8 @@ Engines (127.0.0.1 only): `GET /health/live|/health/ready|/metrics` on all six; 
 
 ## M. Recommended next steps
 
-1. Phase 3 completion: feed `discovered_models` + `request_history` into router-opt `/optimize` from the worker (advisory dashboards).
-2. Wire rank+judge into a `/arena` page (blind battles, §58).
+1. ~~Phase 3 completion: feed `discovered_models` + `request_history` into router-opt `/optimize` from the worker~~ DONE (worker `router_opt_loop`, every 10 min).
+2. ~~Wire rank+judge into a `/arena` page (blind battles, §58)~~ DONE (public `/arena` + ArenaController; judge integration for answer-quality screening is a future refinement).
 3. Agent runtime + teams (Phase 5) as a new isolated engine consuming the same contract.
 4. Migration runner for core Postgres (audit gap #1).
-5. Prometheus scrape of `:8111-8116/metrics` + alert rules.
+5. Prometheus scrape of `:8111-8116/metrics` + alert rules (OTLP push now also available via `OTLP_EXPORT_URL`).

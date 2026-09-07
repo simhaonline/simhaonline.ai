@@ -256,6 +256,7 @@ services:
     build: ./modules/scraper
     image: simhaonline-scraper:latest
     container_name: simha-scraper
+    restart: unless-stopped
     profiles: ["engines"]
     environment:
       SCRAPER_FETCH_TIMEOUT: "20"
@@ -268,6 +269,7 @@ services:
     build: ./modules/reverse
     image: simhaonline-reverse:latest
     container_name: simha-reverse
+    restart: unless-stopped
     profiles: ["engines"]
     environment:
       REVERSE_FETCH_TIMEOUT: "20"
@@ -282,6 +284,7 @@ services:
     image: simhaonline-router-opt:latest
     container_name: simha-router-opt
     profiles: ["engines"]
+    restart: unless-stopped
     ports:
       - "127.0.0.1:8113:8113"
 
@@ -289,6 +292,7 @@ services:
     build: ./modules/rank
     image: simhaonline-rank:latest
     container_name: simha-rank
+    restart: unless-stopped
     profiles: ["engines"]
     volumes:
       - enginesdata:/data
@@ -299,6 +303,7 @@ services:
     build: ./modules/discovery
     image: simhaonline-discovery:latest
     container_name: simha-discovery
+    restart: unless-stopped
     profiles: ["engines"]
     environment:
       DISCOVERY_DB_PATH: /data/discovery.db
@@ -312,6 +317,7 @@ services:
     build: ./modules/judge
     image: simhaonline-judge:latest
     container_name: simha-judge
+    restart: unless-stopped
     profiles: ["engines"]
     environment:
       JUDGE_DATABASE_URL: postgres://${POSTGRES_USER:-simha}:${POSTGRES_PASSWORD:-simha_dev_password}@postgres:5432/${POSTGRES_DB:-simhaonline}

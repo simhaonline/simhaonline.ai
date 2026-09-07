@@ -171,6 +171,7 @@ def _fetch(url: str) -> tuple[int, str]:
 
 def extract_entities(url: str, body: str) -> list[dict[str, Any]]:
     """Deterministic extractors per known source shape. Returns raw records."""
+    import json
     out: list[dict[str, Any]] = []
     # GitHub HTML: repo cards on lists/search pages
     for m in re.finditer(r'href="/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)"[^>]*itemprop="name codeRepository"', body):
@@ -180,7 +181,6 @@ def extract_entities(url: str, body: str) -> list[dict[str, Any]]:
                     "owner": owner, "source_url": url, "confidence": 0.6})
     # MCP servers JSON registry format
     try:
-        import json
         doc = json.loads(body)
         if isinstance(doc, dict):
             servers = doc.get("servers")
@@ -197,6 +197,45 @@ def extract_entities(url: str, body: str) -> list[dict[str, Any]]:
                                 "source_url": url, "confidence": 0.7})
     except (ValueError, TypeError):
         pass
+    # HuggingFace models API: JSON array [{modelId|id, pipeline_tag, ...}]
+    try:
+        doc = json.loads(body)
+        if isinstance(doc, list) and doc and isinstance(doc[0], dict) and \
+                ("modelId" in doc[0] or "id" in doc[0]):
+            for item in doc[:200]:
+                mid = str(item.get("modelId") or item.get("id") or "").strip()
+                if not mid or "/" not in mid:
+                    continue
+                out.append({"canonical_name": mid, "kind": "model",
+                            "description": str(item.get("pipeline_tag") or "")[:500],
+                            "repository": f"https://huggingface.co/{mid}",
+                            "source_url": url, "confidence": 0.7})
+    except (ValueError, TypeError):
+        pass
+    # npm registry search JSON: {objects: [{package: {name, description, links}}]}
+    try:
+        doc = json.loads(body)
+        if isinstance(doc, dict) and isinstance(doc.get("objects"), list):
+            for obj in doc["objects"][:100]:
+                pkg = obj.get("package") or {}
+                name = str(pkg.get("name") or "").strip()
+                if not name:
+                    continue
+                links = pkg.get("links") or {}
+                out.append({"canonical_name": name, "kind": "library",
+                            "description": str(pkg.get("description") or "")[:500],
+                            "repository": str(links.get("repository") or links.get("homepage") or ""),
+                            "source_url": url, "confidence": 0.6})
+    except (ValueError, TypeError):
+        pass
+    # PyPI simple index: <a href="/simple/pkg/">pkg</a> (huge list — cap it)
+    if not out:
+        pkgs = re.findall(r'<a href="/simple/([A-Za-z0-9._-]+)/?">', body)
+        if len(pkgs) > 20:
+            for p in pkgs[:300]:
+                out.append({"canonical_name": p, "kind": "library",
+                            "repository": f"https://pypi.org/project/{p}/",
+                            "source_url": url, "confidence": 0.5})
     # MCP README list format: "- **[Name](src/...)** - description"
     if not out:
         for m in re.finditer(r"^- \*\*\[([^\]]+)\]\(([^)]+)\)\*\*\s*-\s*(.+)$", body, re.M):

@@ -7,6 +7,7 @@ import { ChatModule } from './chat/chat.module';
 import { BffModule } from './bff/bff.module';
 import { BillingModule } from './billing/billing.module';
 import { UsageModule } from './usage/usage.module';
+import { ArenaController } from './arena/arena.controller';
 import { HealthController } from './health.controller';
 import { InternalOauthController } from './oauth/internal-oauth.controller';
 
@@ -21,6 +22,6 @@ import { InternalOauthController } from './oauth/internal-oauth.controller';
     BillingModule,
     UsageModule,
   ],
-  controllers: [HealthController, InternalOauthController],
+  controllers: [HealthController, InternalOauthController, ArenaController],
 })
 export class AppModule {}

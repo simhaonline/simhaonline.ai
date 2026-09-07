@@ -8,6 +8,8 @@ const CONTROL = process.env.CONTROL_PLANE_URL || 'http://control-plane:8081';
 // route prefixes here rather than exposing internal controller layout.
 function controlPath(path: string[]): string[] {
   if (path[0] === 'admin') return ['admin', 'api', ...path.slice(1)];
+  // Public Arena battle API: /api/arena/* → CP /arena/api/* (no auth by design).
+  if (path[0] === 'arena') return ['arena', 'api', ...path.slice(1)];
   if (path[0] === 'client-keys') return ['api', 'client-keys', ...path.slice(1)];
   // Workbench: /api/chat/api/v1/* → CP /chat/api/v1/* (v1 controllers).
   if (path[0] === 'chat' && path[1] === 'api' && path[2] === 'v1') {

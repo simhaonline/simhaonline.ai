@@ -26,6 +26,7 @@ DB_URL = os.environ.get("DATABASE_URL", "postgresql://simha:simha_dev_password@l
 VALKEY_URL = os.environ.get("VALKEY_URL", "redis://localhost:6380/2")
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://gateway:8080")
 CONTROL_URL = os.environ.get("CONTROL_PLANE_URL", "http://control-plane:8081")
+ROUTER_OPT_URL = os.environ.get("ROUTER_OPT_URL", "http://router-opt:8113")
 DISCOVERY_INTERVAL = int(os.environ.get("MODEL_REFRESH_INTERVAL", "300"))
 STATUS_INTERVAL = int(os.environ.get("STATUS_SNAPSHOT_INTERVAL", "60"))
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/uploads")
@@ -246,6 +247,86 @@ async def rollup_loop():
     while True:
         await rollups()
         await asyncio.sleep(900)
+
+
+async def router_opt_feed():
+    """Push the live routing pool (accounts × enabled models, usage ratios,
+    per-model latency/error stats from request_history) into the router-opt
+    engine's /optimize endpoint. Advisory only — the engine never mutates
+    gateway state; the report is surfaced in the ops dashboards."""
+    if not ROUTER_OPT_URL:
+        return
+    try:
+        async with pool.connection() as c, c.cursor() as cur:
+            await cur.execute("""
+                SELECT a.name, a.provider, a.base_url, a.api_prefix,
+                       COALESCE((a.limits_json->'day'->>'limit')::float, 0),
+                       COALESCE((a.limits_json->'day'->>'used')::float, 0),
+                       a.wildcard
+                FROM accounts a
+            """)
+            accts = await cur.fetchall()
+            if not accts:
+                return
+            await cur.execute("""
+                SELECT account_name, model FROM discovered_models WHERE enabled
+            """)
+            models = await cur.fetchall()
+            models_by_acct: dict[str, list[str]] = {}
+            for acct, model in models:
+                models_by_acct.setdefault(acct, []).append(model)
+            # per (account, model) 24h stats: success ratio + avg latency
+            await cur.execute("""
+                SELECT account_name, model,
+                       COUNT(*) AS n,
+                       COUNT(*) FILTER (WHERE status < 400) AS ok,
+                       AVG(latency_ms)
+                FROM request_history
+                WHERE requested_at > now() - interval '24 hours'
+                  AND account_name IS NOT NULL AND model IS NOT NULL
+                GROUP BY account_name, model
+            """)
+            stats = {(r[0], r[1]): r for r in await cur.fetchall()}
+            now_iso = "1970-01-01T00:00:00Z"  # entries with no cooldown data
+            entries = []
+            for name, provider, base_url, api_prefix, day_limit, day_used, wildcard in accts:
+                acct_models = models_by_acct.get(name, [])
+                if wildcard and not acct_models:
+                    acct_models = ["*"]
+                ratio = (day_used / day_limit) if day_limit else 0.0
+                for model in acct_models[:50]:
+                    s = stats.get((name, model))
+                    ok_ratio = (s[3] / s[2]) if s and s[2] else 1.0
+                    entries.append({
+                        "id": f"{name}:{model}",
+                        "provider": provider,
+                        "base_url": base_url.rstrip("/") + (api_prefix or ""),
+                        "model": model,
+                        "credit_tier": 1 if ok_ratio >= 0.99 else (2 if ok_ratio >= 0.95 else 3),
+                        "tier_name": "live-traffic",
+                        "credits_left": max(0.0, (day_limit or 0) - (day_used or 0)),
+                        "credits_max": day_limit or 0,
+                        "usage_ratio": round(min(1.0, ratio), 4),
+                        "cooldown_until": now_iso,
+                    })
+            if not entries:
+                return
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.post(f"{ROUTER_OPT_URL}/optimize", json={"entries": entries})
+                if r.status_code == 200:
+                    summary = (r.json().get("summary") or {})
+                    LOG.info("router-opt feed: %s entries, %s advisory picks",
+                             summary.get("input_entries"), summary.get("advisory_picks"))
+                else:
+                    LOG.warning("router-opt feed: HTTP %s", r.status_code)
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("router-opt feed failed: %s", exc)
+
+
+async def router_opt_loop():
+    while True:
+        await router_opt_feed()
+        await asyncio.sleep(600)
 
 
 async def scheduled_runner():
@@ -510,6 +591,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(status_loop(), name="status"),
         asyncio.create_task(email_worker(), name="email"),
         asyncio.create_task(rollup_loop(), name="rollups"),
+        asyncio.create_task(router_opt_loop(), name="router-opt-feed"),
         asyncio.create_task(scheduler_loop(), name="scheduler"),
         asyncio.create_task(ingestion_loop(), name="ingestion"),
         asyncio.create_task(backup_loop(), name="backup"),
