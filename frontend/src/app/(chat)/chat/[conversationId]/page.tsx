@@ -33,6 +33,7 @@ export default function ConversationPage() {
 
   const [title, setTitle] = useState('');
   const [editingTitle, setEditingTitle] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [streamError, setStreamError] = useState('');
   const [artifact, setArtifact] = useState<ArtifactState>(EMPTY_ARTIFACT);
@@ -41,7 +42,7 @@ export default function ConversationPage() {
   const abortRef = useRef<AbortController | null>(null);
   const list = messages[conversationId] || [];
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (retry = 0): Promise<void> => {
     setLoading(true);
     try {
       const [d, convs] = await Promise.all([
@@ -52,8 +53,16 @@ export default function ConversationPage() {
       // ids are strings over the wire ("8") — compare loosely
       const conv = convs.conversations.find((c) => String(c.id) === String(conversationId));
       if (conv) setTitle(conv.title);
+      setLoadError('');
     } catch (e) {
-      setStreamError(String((e as Error).message || e));
+      // Stale-bundle deploys and transient BFF hiccups make a single failed
+      // messages fetch look like "empty chat" — retry twice before showing
+      // an error, so a redeploy never presents a silent empty conversation.
+      if (retry < 2) {
+        await new Promise((r) => setTimeout(r, 1200 * (retry + 1)));
+        return load(retry + 1);
+      }
+      setLoadError(String((e as Error).message || e));
     } finally {
       setLoading(false);
     }
@@ -288,7 +297,19 @@ export default function ConversationPage() {
               <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-6">
                 <MessageListErrorBoundary onRetry={() => void load()}>
                 <div className="mx-auto w-full max-w-3xl space-y-5">
-                {loading && <p className="pt-10 text-center text-xs text-zinc-600">Loading conversation…</p>}
+                {loading && !loadError && <p className="pt-10 text-center text-xs text-zinc-600">Loading conversation…</p>}
+                {loadError && !loading && (
+                  <div className="mx-auto mt-10 max-w-md rounded-xl border border-red-500/30 bg-red-500/5 p-5 text-center">
+                    <p className="text-sm font-medium text-red-400">Couldn't load this conversation</p>
+                    <p className="mt-1 text-xs text-zinc-500">{loadError}</p>
+                    <button
+                      onClick={() => { setLoadError(''); void load(); }}
+                      className="mt-3 rounded-lg bg-violet-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-violet-400 cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
                 {(messages[conversationId] || []).map((m) => (
                   <MessageBubble
                     key={m.id}

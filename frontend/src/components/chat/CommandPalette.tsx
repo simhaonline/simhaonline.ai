@@ -37,9 +37,11 @@ export function CommandPalette({
       onOpenChange={(v) => { if (!v) onClose(); }}
       label="Command palette"
       loop
-      className="fixed inset-0 z-[100] bg-black/70 pt-[12vh]"
+      // cmdk v1 renders className on the INNER content and
+      // contentClassName on the OUTER wrapper (verified via DOM inspection)
+      contentClassName="fixed inset-0 z-[100] bg-black/70 pt-[12vh]"
       overlayClassName=""
-      contentClassName="mx-auto w-full max-w-xl rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden"
+      className="mx-auto w-full max-w-xl rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden"
     >
       <Command.Input
         autoFocus
