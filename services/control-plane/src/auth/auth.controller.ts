@@ -84,6 +84,8 @@ export class AuthController {
       terms_accepted?: boolean;
       privacy_accepted?: boolean;
       marketing_email?: boolean;
+      terms_version?: string;
+      privacy_version?: string;
     },
     @Req() req: Request,
     @Res() res: Response,
@@ -93,6 +95,16 @@ export class AuthController {
     if (!body.terms_accepted || !body.privacy_accepted) {
       throw new HttpException(
         { error: 'You must accept the Terms of Use and Privacy Policy' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    // Versioned consent: stale or missing legal versions are rejected so the
+    // audit trail always records which exact document text was accepted.
+    const TERMS_VERSION = '2026-09-07';
+    const PRIVACY_VERSION = '2026-09-07';
+    if (body.terms_version !== TERMS_VERSION || body.privacy_version !== PRIVACY_VERSION) {
+      throw new HttpException(
+        { error: 'Outdated terms version — please reload the signup page and accept the current documents' },
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -116,9 +128,12 @@ export class AuthController {
       const userId = await this.auth.createUser(email, password, 'operator', {
         terms_accepted: true,
         privacy_accepted: true,
+        terms_version: body.terms_version,
+        privacy_version: body.privacy_version,
         marketing_email: !!body.marketing_email,
         ip_hash: hashIp(req.ip || ''),
         accepted_at: new Date().toISOString(),
+        user_agent: (req.headers['user-agent'] || '').slice(0, 200),
       });
       // email verification: account stays unverified until token consumed.
       const verifyToken = await this.auth.createAuthToken(userId, 'email_verify', 1440);

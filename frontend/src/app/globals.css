@@ -759,3 +759,97 @@ pre.code {
 
 /* A11y: keyboard focus ring on interactive workbench controls */
 .simha-workbench button:focus-visible,.simha-workbench textarea:focus-visible{outline:2px solid #a087ff;outline-offset:1px}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Signup consent flow (versioned T&C / Privacy)
+   ══════════════════════════════════════════════════════════════════════════ */
+.consent-block{display:grid;gap:8px;border:1px solid var(--line);border-radius:10px;padding:12px;background:color-mix(in srgb, var(--panel) 60%, transparent)}
+.consent-title{margin:0 0 2px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.consent-box{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.consent-box-head{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;color:var(--text);padding:9px 10px;font-size:12.5px;cursor:pointer;text-align:left}
+.consent-box-head:hover{background:color-mix(in srgb, var(--accent) 8%, transparent)}
+.consent-box-head b{flex:1}
+.consent-version{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:1px 7px}
+.consent-chevron{margin-left:auto;color:var(--muted);transition:transform .15s ease}
+.consent-box[data-open="true"] .consent-chevron{transform:rotate(180deg)}
+.consent-box-body{display:grid;gap:6px;padding:4px 12px 11px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.consent-box-body ul{margin:6px 0 0;padding-left:16px;display:grid;gap:3px}
+.consent-box-body a{color:var(--accent);font-size:11.5px}
+.consent-check{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:var(--text);cursor:pointer;line-height:1.45}
+.consent-check input{width:17px;height:17px;flex:none;accent-color:var(--accent);cursor:pointer;margin-top:1px}
+.consent-check.optional{color:var(--muted)}
+.consent-check a{color:var(--accent);text-decoration:underline}
+.consent-record{margin:2px 0 0;font-size:10.5px;color:var(--muted)}
+.pw-meter{display:flex;align-items:center;gap:8px;margin-top:7px}
+.pw-meter-bars{display:flex;gap:4px;flex:1}
+.pw-meter-bars i{height:4px;flex:1;border-radius:99px;background:var(--line);transition:background .15s ease}
+.pw-meter-bars[data-strength="1"] i:nth-child(-n+1){background:#f87171}
+.pw-meter-bars[data-strength="2"] i:nth-child(-n+2){background:#fbbf24}
+.pw-meter-bars[data-strength="3"] i:nth-child(-n+3){background:#a3e635}
+.pw-meter-bars[data-strength="4"] i:nth-child(-n+4){background:#34d399}
+.pw-meter>span{font-size:11px;color:var(--muted);min-width:64px;text-align:right}
+.field-hint{display:flex;align-items:center;gap:4px;font-size:11.5px;margin-top:4px}
+.field-hint.ok{color:#34d399}
+.field-hint.err{color:var(--err)}
+.btn .spin{animation:btn-spin 1s linear infinite}
+@keyframes btn-spin{to{transform:rotate(360deg)}}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Device compatibility sweep — auth/landing surfaces + PWA safe areas.
+   (Workbench + dash-shell breakpoints already exist above; this closes the
+   remaining gaps: auth cards, arena, public pages, coarse-pointer targets.)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* All auth + public containers: never overflow on small screens */
+.container{width:100%;max-width:1120px;margin:0 auto;padding-left:16px;padding-right:16px;box-sizing:border-box}
+main.container{padding-left:16px;padding-right:16px}
+.card{max-width:100%;overflow-wrap:anywhere}
+input,select,textarea{max-width:100%}
+
+/* PWA: safe areas on every fixed/absolute chrome bar */
+.topbar,.dash-top,.wb-root header{padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.container{padding-bottom:max(0px, env(safe-area-inset-bottom, 0px))}
+
+/* Coarse pointers: comfortable touch targets outside the workbench too */
+@media (pointer: coarse){
+  .btn{min-height:42px}
+  .dash-side nav button{min-height:42px}
+  .consent-check input{width:20px;height:20px}
+  input[type="checkbox"]{width:19px;height:19px}
+  input:not([type="checkbox"]),select{font-size:16px} /* no iOS zoom-on-focus */
+}
+
+/* Tablets (≤ 1024px): dashboards keep 2-col metrics, tighten tables */
+@media (max-width: 1024px){
+  .dash-metrics{grid-template-columns:repeat(2, minmax(0,1fr))}
+  .dash-grid{grid-template-columns:1fr}
+  .dash-account-layout{grid-template-columns:1fr}
+}
+
+/* Large phones (≤ 600px): control-center sidebar becomes a scrollable top bar
+   (rules existed; add missing internals) + full-width buttons */
+@media (max-width: 600px){
+  .dash-content{padding:16px 12px calc(16px + env(safe-area-inset-bottom, 0px))}
+  .dash-top{position:sticky;top:0;z-index:30;background:inherit}
+  .dash-top-actions .btn{display:none}
+  .dash-actions{gap:8px}
+  .dash-actions .btn{flex:1 1 auto}
+  .dash-head h1{font-size:20px}
+  .card,.dash-card{overflow-x:auto}
+  .dash-table{min-width:560px}
+  .form-row{grid-template-columns:1fr}
+  .btn{width:100%}
+  .form-row .btn,.dash-actions .btn{width:auto}
+}
+
+/* Small phones (≤ 380px): metrics single-col, tighter type */
+@media (max-width: 380px){
+  .dash-metrics{grid-template-columns:1fr}
+  h1{font-size:22px}
+  .consent-check{font-size:12.5px}
+}
+
+/* Reduced motion: honour the OS setting everywhere */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+}

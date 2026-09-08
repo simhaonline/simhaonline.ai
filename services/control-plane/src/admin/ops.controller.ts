@@ -14,6 +14,7 @@ const ENGINE_BASES: Record<string, string> = {
   rank: process.env.RANK_URL || 'http://rank:8114',
   discovery: process.env.DISCOVERY_URL || 'http://discovery:8115',
   judge: process.env.JUDGE_URL || 'http://judge:8116',
+  agents: process.env.AGENTS_URL || 'http://agents:8117',
 };
 
 @Controller('admin/api')
@@ -81,6 +82,17 @@ export class OpsController {
       `SELECT COUNT(*)::bigint AS runs,
               COUNT(*) FILTER (WHERE status <> 'ok')::int AS failures
        FROM judge_runs WHERE created_at > now() - interval '24 hours'`);
+    let agentToday: Array<Record<string, unknown>> = [];
+    try {
+      (await this.pool.query(
+        `SELECT COUNT(*)::bigint AS runs,
+                COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+                COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+                COUNT(*) FILTER (WHERE status = 'awaiting_approval')::int AS awaiting_approval,
+                COALESCE(SUM(tokens_used), 0)::bigint AS tokens
+         FROM agent_runs WHERE created_at > now() - interval '24 hours'`
+      )).rows.forEach((r) => agentToday.push(r));
+    } catch { agentToday = [{ runs: 0, completed: 0, failed: 0, awaiting_approval: 0, tokens: 0 }]; }
     const { rows: policyRows } = await this.pool.query(
       `SELECT model, max_input_tokens, min_output_tokens, max_output_tokens,
               max_tool_result_chars, dedupe_system_messages, updated_at
@@ -92,6 +104,7 @@ export class OpsController {
     out.per_model = perModel;
     out.rate_limited_recently = cooldowns;
     out.judge_today = judgeToday[0] || {};
+    out.agents_today = agentToday[0] || {};
     out.policies = policyRows;
     out.limits = limits;
     return res.json(out);
